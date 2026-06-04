@@ -1,3 +1,5 @@
+import { deepEqual } from './utils.js'
+
 export function evaluateQuery(doc, query) {
   if (!query || Object.keys(query).length === 0) return true
 
@@ -8,10 +10,6 @@ export function evaluateQuery(doc, query) {
     }
     if (key === '$or') {
       if (!condition.some((sub) => evaluateQuery(doc, sub))) return false
-      continue
-    }
-    if (key === '$not') {
-      if (evaluateQuery(doc, condition)) return false
       continue
     }
     if (key === '$nor') {
@@ -46,8 +44,11 @@ function getNestedValue(doc, path) {
 }
 
 function matchCondition(docVal, condition) {
-  if (condition === null) return docVal === null
+  // null shorthand: { field: null } matches null and missing
+  if (condition === null) return docVal == null
+
   if (typeof condition !== 'object' || condition instanceof RegExp) {
+    if (condition instanceof RegExp) return condition.test(String(docVal))
     return docVal === condition
   }
 
@@ -55,43 +56,71 @@ function matchCondition(docVal, condition) {
     return condition.some((item) => matchCondition(docVal, item))
   }
 
-  for (const [op, operand] of Object.entries(condition)) {
-    switch (op) {
-      case '$eq': if (!(docVal === operand)) return false; break
-      case '$ne': if (!(docVal !== operand)) return false; break
-      case '$gt': if (!(docVal > operand)) return false; break
-      case '$gte': if (!(docVal >= operand)) return false; break
-      case '$lt': if (!(docVal < operand)) return false; break
-      case '$lte': if (!(docVal <= operand)) return false; break
-      case '$in': if (!(Array.isArray(operand) && operand.some((v) => v === docVal))) return false; break
-      case '$nin': if (!(Array.isArray(operand) && operand.every((v) => v !== docVal))) return false; break
-      case '$exists': if (operand ? docVal === undefined : docVal !== undefined) return false; break
-      case '$type': {
-        const bsonType = typeof docVal === 'number' ? 'number'
-          : typeof docVal === 'string' ? 'string'
-          : typeof docVal === 'boolean' ? 'bool'
-          : Array.isArray(docVal) ? 'array'
-          : docVal === null ? 'null'
-          : docVal instanceof Date ? 'date'
-          : typeof docVal === 'object' ? 'object' : typeof docVal
-        if (bsonType !== operand) return false
-        break
-      }
-      case '$regex': {
-        const regex = operand instanceof RegExp ? operand : new RegExp(operand)
-        if (!regex.test(String(docVal))) return false
-        break
-      }
-      case '$options': break
-      case '$elemMatch': {
-        if (!Array.isArray(docVal)) return false
-        if (!docVal.some((item) => evaluateQuery(item, operand))) return false
-        break
-      }
-      default: return false
+  // Pre-process $regex + $options combination
+  if (typeof condition.$regex !== 'undefined' && typeof condition.$options !== 'undefined') {
+    const regex = condition.$regex instanceof RegExp
+      ? condition.$regex
+      : new RegExp(condition.$regex, condition.$options)
+    if (!regex.test(String(docVal))) return false
+    // Continue to process any remaining operators (excluding $regex/$options)
+    const rest = Object.entries(condition).filter(([op]) => op !== '$regex' && op !== '$options')
+    for (const [op, operand] of rest) {
+      if (!applySingleOp(docVal, op, operand, condition)) return false
     }
+    return true
+  }
+
+  for (const [op, operand] of Object.entries(condition)) {
+    if (!applySingleOp(docVal, op, operand, condition)) return false
   }
   return true
+}
+
+function applySingleOp(docVal, op, operand, fullCondition) {
+  switch (op) {
+    case '$eq': return docVal == null && operand == null ? true : docVal === operand
+    case '$ne': return docVal !== operand
+    case '$gt': return docVal > operand
+    case '$gte': return docVal >= operand
+    case '$lt': return docVal < operand
+    case '$lte': return docVal <= operand
+    case '$in': return Array.isArray(operand) && operand.some((v) => deepEqual(v, docVal))
+    case '$nin': return Array.isArray(operand) && operand.every((v) => !deepEqual(v, docVal))
+    case '$exists': return operand ? docVal !== undefined : docVal === undefined
+    case '$type': {
+      const bsonType = typeof docVal === 'number' ? 'number'
+        : typeof docVal === 'string' ? 'string'
+        : typeof docVal === 'boolean' ? 'bool'
+        : Array.isArray(docVal) ? 'array'
+        : docVal === null ? 'null'
+        : docVal instanceof Date ? 'date'
+        : typeof docVal === 'object' ? 'object' : typeof docVal
+      return bsonType === operand
+    }
+    case '$regex': {
+      const flags = fullCondition.$options ?? ''
+      const regex = operand instanceof RegExp ? operand : new RegExp(operand, flags)
+      return regex.test(String(docVal))
+    }
+    case '$options': return true // handled with $regex above
+    case '$not': return !matchCondition(docVal, operand)
+    case '$elemMatch': {
+      if (!Array.isArray(docVal)) return false
+      return docVal.some((item) => evaluateQuery(item, operand))
+    }
+    case '$all': {
+      if (!Array.isArray(docVal) || !Array.isArray(operand)) return false
+      return operand.every((v) => docVal.some((item) => deepEqual(item, v)))
+    }
+    case '$size': {
+      return Array.isArray(docVal) && docVal.length === operand
+    }
+    case '$mod': {
+      return Array.isArray(operand) && operand.length >= 2 && typeof docVal === 'number'
+        && docVal % operand[0] === operand[1]
+    }
+    default: return false
+  }
 }
 
 function evaluateExpression(doc, expr) {

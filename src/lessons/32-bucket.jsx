@@ -1,8 +1,8 @@
 import books from '../data/books.js'
 
 const boundaries = [0, 300, 500, 700, 1400]
-const buckets = boundaries.slice(0, -1).map((min, i) => ({
-  _id: { min, max: boundaries[i + 1] },
+const buckets = boundaries.slice(0, -1).map((min) => ({
+  _id: min,
   count: 0,
   titles: [],
   avgRating: 0,

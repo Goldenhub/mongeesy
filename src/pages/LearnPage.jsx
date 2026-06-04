@@ -98,7 +98,10 @@ export default function LearnPage() {
           return
         }
 
-        const isMatch = compareResults(resultArray, currentLesson.expectedResult)
+        const resultMatch = compareResults(resultArray, currentLesson.expectedResult)
+        const collectionMatch = !currentLesson.expectedCollections
+          || currentLesson.expectedCollections.every((name) => !!dbRef.current.collections[name])
+        const isMatch = resultMatch && collectionMatch
         setMatch(isMatch)
 
         const key = String(currentLesson.id)

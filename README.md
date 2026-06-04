@@ -6,7 +6,7 @@ An interactive, in-browser MongoDB playground. Write real MongoDB queries agains
 
 - **Real MongoDB queries** — Type real `find()`, `aggregate()`, `sort()`, `group()`, `lookup()` syntax. A custom query engine runs it all in your browser.
 - **Immediate feedback** — See your result side-by-side with the expected output. Know instantly if you got it right.
-- **32 progressive lessons** — Start with `find()` and work up to `$bucket`, `$facet`, and `$lookup`. Five modules covering reading, aggregation, writes, advanced queries, and analytical patterns.
+- **35 progressive lessons** — Start with `find()` and work up to `$bucket`, `$facet`, and `$lookup`. Five modules covering reading, aggregation, writes, advanced queries, and analytical patterns.
 - **Hints that guide** — Progressive hints for each lesson that point you in the right direction without giving away the answer.
 - **No signup, no cost** — Everything runs client-side. No account, no email, no credit card.
 - **Progress that persists** — Completed lessons, last query, and attempt counts are saved to localStorage automatically.
@@ -67,10 +67,11 @@ src/
 │   ├── pipeline-engine.js  # Aggregation pipeline executor
 │   ├── mongosh-parser.js   # MongoDB shell syntax parser
 │   ├── operators.js        # Query and expression operators
-│   └── collection.js       # Collection class with CRUD operations
+│   ├── collection.js       # Collection class with CRUD operations
+│   └── utils.js            # Shared engine utilities (deepEqual, compareValues)
 ├── hooks/            # Custom React hooks (useProgress)
 ├── lib/              # Analytics helpers (PostHog)
-├── lessons/          # 32 lesson files (one per concept)
+├── lessons/          # 35 lesson files (one per concept)
 ├── pages/            # LandingPage and LearnPage
 └── utils/            # Helpers (modules, comparison, table formatting)
 ```
@@ -85,27 +86,73 @@ The query engine parses MongoDB shell syntax, executes against in-memory collect
 
 ## Architecture
 
-The custom MongoDB query engine is split into five modules in `src/engine/`, each with a single responsibility:
+The custom MongoDB query engine is split into six modules in `src/engine/`, each with a single responsibility:
 
 ### `mongosh-parser.js`
 Tokenizes MongoDB shell syntax (`db.books.find({ ... }).sort({ ... })`) into structured command objects. Handles nested parentheses, string literals, regex patterns, and chained methods. Uses `new Function` to evaluate raw JS argument strings into real objects.
 
 ### `operators.js`
-Evaluates query filters against documents. Supports all major operators: `$gt`, `$in`, `$regex`, `$and`/`$or`, `$expr`, `$elemMatch`, `$where`. Resolves dotted field paths like `address.city`.
+Evaluates query filters against documents. Supports all major operators:
+
+- **Comparison:** `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`
+- **Array:** `$in`, `$nin`, `$all`, `$size`, `$elemMatch`
+- **Element:** `$exists`, `$type`
+- **Evaluation:** `$regex` (with `$options`), `$mod`, `$where`, `$expr`
+- **Logical:** `$and`, `$or`, `$nor`, `$not` (field-level)
+
+`{ field: null }` matches both explicit `null` and missing fields, matching real MongoDB semantics. Resolves dotted field paths like `address.city`.
 
 ### `collection.js`
-In-memory document array with CRUD methods: `find`, `insertOne`, `updateMany`, `deleteOne`, `distinct`, `aggregate`. Applies projections, update operators (`$set`, `$inc`, `$push`, `$pull`), and auto-generates sequential numeric `_id` values.
+In-memory document array with CRUD methods: `find`, `insertOne`, `updateMany`, `deleteOne`, `distinct`, `aggregate`. Applies projections (including dotted-path inclusion/exclusion), and update operators:
+
+- **Field:** `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$currentDate`, `$rename`
+- **Array:** `$push` (with `$each`/`$position`/`$slice`/`$sort` modifiers), `$pop`, `$pull`, `$pullAll`, `$addToSet`
+- **Bitwise:** `$bit`
 
 ### `pipeline-engine.js`
-Aggregation pipeline executor. Stages (`$match`, `$group`, `$lookup`, `$bucket`, `$facet`) are applied sequentially against cloned documents. Expression resolution handles computed fields, conditionals (`$cond`), arithmetic, and accumulators (`$sum`, `$avg`, `$push`).
+Aggregation pipeline executor. Stages are applied sequentially against cloned documents:
+
+| Stage | Description |
+|---|---|
+| `$match` | Filter documents |
+| `$project` | Include/exclude/compute fields (dotted-path aware) |
+| `$addFields` / `$set` | Add computed fields |
+| `$unset` | Remove fields |
+| `$group` | Group and accumulate (`$sum`, `$avg`, `$min`, `$max`, `$push`, `$addToSet`, `$first`, `$last`, `$count`, `$stdDevPop`, `$stdDevSamp`) |
+| `$sort` | Order documents (null/missing sort last for ascending) |
+| `$limit` / `$skip` | Pagination |
+| `$count` | Count documents into a named field |
+| `$unwind` | Flatten arrays (supports `preserveNullAndEmptyArrays`, `includeArrayIndex`) |
+| `$lookup` | Join collections — equality form and pipeline form (with `let`/`$$vars`) |
+| `$replaceRoot` / `$replaceWith` | Replace each document with an expression |
+| `$bucket` | Range-based bucketing |
+| `$facet` | Multiple parallel sub-pipelines |
+| `$sample` | Random document sample |
+
+Expression operators available in `$addFields`, `$project`, `$group`, etc.:
+
+- **Arithmetic:** `$add`, `$subtract`, `$multiply`, `$divide`, `$mod`, `$abs`, `$ceil`, `$floor`, `$round`, `$sqrt`, `$pow`, `$log`, `$ln`, `$log10`, `$trunc`, `$exp`
+- **String:** `$concat`, `$split`, `$toLower`, `$toUpper`, `$trim`, `$ltrim`, `$rtrim`, `$substr`, `$substrCP`, `$strLenCP`, `$indexOfCP`, `$regexMatch`, `$regexFind`, `$regexFindAll`
+- **Array:** `$arrayElemAt`, `$concatArrays`, `$filter`, `$map`, `$reduce`, `$size`, `$slice`, `$reverseArray`, `$in`, `$indexOfArray`, `$isArray`, `$range`, `$first`, `$last`, `$zip`
+- **Date:** `$year`, `$month`, `$dayOfMonth`, `$hour`, `$minute`, `$second`, `$millisecond`, `$dayOfWeek`, `$dayOfYear`, `$week`, `$isoWeek`, `$isoWeekYear`, `$isoDayOfWeek`, `$dateToString`, `$dateFromString`, `$toDate`
+- **Type:** `$type`, `$isArray`, `$isNumber`, `$toString`, `$toInt`, `$toLong`, `$toDouble`, `$toBool`
+- **Set:** `$setUnion`, `$setIntersection`, `$setDifference`, `$setEquals`, `$setIsSubset`
+- **Object:** `$mergeObjects`, `$objectToArray`, `$arrayToObject`, `$getField`, `$setField`
+- **Conditional:** `$cond`, `$ifNull`, `$switch`
+- **Other:** `$let`, `$literal`, `$rand`
+
+### `utils.js`
+Shared engine utilities: `deepEqual` (key-order-insensitive structural equality used for `$addToSet`, `$pull`, `$all`, set operators) and `compareValues` (MongoDB-style sort comparator that places `null`/missing last).
 
 ### `query-engine.js`
 Top-level `Database` class. On `execute(query)`:
 1. Parses the query string via `mongosh-parser.js`
 2. Evaluates arguments to real JS values
 3. Dispatches to the right `Collection` method
-4. Applies chained cursor methods (`.sort()`, `.limit()`, `.count()`)
+4. Applies chained cursor methods (`.sort()`, `.limit()`, `.skip()`, `.count()`)
 5. Returns `{ result, collection, method }`
+
+Also handles `db.createCollection()` and implicit collection creation on `insertOne`/`insertMany`.
 
 All data lives in memory — no network, no server. Documents are deep-cloned to prevent mutation. The `$lookup` stage references other collections via a shared collections map.
 
@@ -123,7 +170,7 @@ The following events are tracked when analytics is active:
 | `query_run`             | User executes a query (includes `matched` and `total_attempts`) |
 | `lesson_completed`      | User gets the correct answer                                    |
 | `module_completed`      | All lessons in a module are finished                            |
-| `all_lessons_completed` | All 32 lessons are finished                                     |
+| `all_lessons_completed` | All 35 lessons are finished                                     |
 | `query_error`           | Query throws a parse or execution error                         |
 | `query_reset`           | User presses the Reset button                                   |
 | `hint_viewed`           | User opens a hint or navigates between hints                    |
@@ -203,6 +250,7 @@ export default lesson
 | `defaultQuery`    | yes      | The query string that passes the lesson. Used by tests.      |
 | `collections`     | yes      | Object mapping collection names to their data arrays.        |
 | `expectedResult`  | yes      | Array of documents the correct query produces.               |
+| `expectedCollections` | no   | Array of collection names that must exist in the database after the query runs. Use this when the correct answer is verified by side-effect (e.g. `createCollection`) rather than return value alone. |
 | `hints`           | no       | Array of progressive hint strings.                           |
 | `howItWorks`      | no       | JSX — expandable "How it works" box.                         |
 | `realWorldUse`    | no       | JSX — expandable "Real-world use" box.                       |
@@ -216,31 +264,16 @@ export default lesson
 npm run test
 ```
 
-The test suite auto-discovers all lessons in `src/lessons/index.js`. For each lesson it:
+The test suite lives in `src/lessons/lessons.test.js` and has two sections:
 
+**Lesson smoke tests** — one test per lesson (35 total). For each lesson:
 1. Creates a fresh in-memory database with the lesson's collections.
 2. Executes the lesson's `defaultQuery`.
-3. Compares the result against `expectedResult` using deep equality.
+3. Compares the result against `expectedResult` using order-insensitive deep equality.
+
+**Engine edge-case tests** — targeted unit tests for specific operator behaviors including null semantics, sort stability, `$unwind` edge cases, update modifiers, expression operators, and `$lookup` pipeline form.
 
 When adding a new lesson, write the `defaultQuery` and `expectedResult` first, then run `npm run test` to confirm they match before building the UI content.
-
-### Test file
-
-`src/lessons/lessons.test.js` — a single Vitest test file that iterates over every lesson:
-
-```js
-lessons.forEach((lesson) => {
-  it(`lesson ${lesson.id}: ${lesson.title}`, () => {
-    const db = new Database(lesson.collections);
-    const { result } = db.execute(lesson.defaultQuery);
-    const resultArray = Array.isArray(result) ? result : [result];
-    const match = compareResults(resultArray, lesson.expectedResult);
-    if (!match) {
-      expect(resultArray).toEqual(lesson.expectedResult);
-    }
-  });
-});
-```
 
 ## License
 

@@ -1,5 +1,6 @@
 import { Collection } from './collection.js'
 import { parseQuery, evaluateArg, ParseError } from './mongosh-parser.js'
+import { compareValues } from './utils.js'
 
 export class Database {
   constructor(seedData = {}) {
@@ -132,8 +133,8 @@ function applyChains(results, chains) {
           for (const [field, order] of Object.entries(sortSpec)) {
             const aVal = resolveField(a, field)
             const bVal = resolveField(b, field)
-            if (aVal < bVal) return -1 * order
-            if (aVal > bVal) return 1 * order
+            const cmp = compareValues(aVal, bVal)
+            if (cmp !== 0) return cmp * order
           }
           return 0
         })

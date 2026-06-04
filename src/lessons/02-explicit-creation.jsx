@@ -125,6 +125,7 @@ const lesson = {
   collections: {},
 
   expectedResult: [{ ok: 1 }],
+  expectedCollections: ['reviews'],
 
   hints: [
     'Use createCollection() directly on the db object',
