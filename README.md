@@ -1,18 +1,18 @@
 # Mongeesy
 
-An interactive, in-browser MongoDB playground. Write real MongoDB queries against real data and get instant feedback — no setup, no signup, no cloud.
+An interactive, in-browser MongoDB playground. Write real MongoDB queries against real data and get instant feedback - no setup, no signup, no cloud.
 
 ## Features
 
-- **Real MongoDB queries** — Type real `find()`, `aggregate()`, `sort()`, `group()`, `lookup()` syntax. A custom query engine runs it all in your browser.
-- **Immediate feedback** — See your result side-by-side with the expected output. Know instantly if you got it right.
-- **35 progressive lessons** — Start with `find()` and work up to `$bucket`, `$facet`, and `$lookup`. Five modules covering reading, aggregation, writes, advanced queries, and analytical patterns.
-- **Hints that guide** — Progressive hints for each lesson that point you in the right direction without giving away the answer.
-- **No signup, no cost** — Everything runs client-side. No account, no email, no credit card.
-- **Progress that persists** — Completed lessons, last query, and attempt counts are saved to localStorage automatically.
-- **Dark mode** — Full light/dark theme toggle, persisted to localStorage, with flash-free initialisation.
-- **Completion experience** — Finishing all lessons triggers a multi-wave confetti burst and a modal with stats and next-step resources.
-- **Analytics** — Optional PostHog integration tracks lesson completions, query attempts, hint usage, and drop-off to help improve the curriculum.
+- **Real MongoDB queries** - Type real `find()`, `aggregate()`, `sort()`, `group()`, `lookup()` syntax. A custom query engine runs it all in your browser.
+- **Immediate feedback** - See your result side-by-side with the expected output. Know instantly if you got it right.
+- **35 progressive lessons** - Start with `find()` and work up to `$bucket`, `$facet`, and `$lookup`. Five modules covering reading, aggregation, writes, advanced queries, and analytical patterns.
+- **Hints that guide** - Progressive hints for each lesson that point you in the right direction without giving away the answer.
+- **No signup, no cost** - Everything runs client-side. No account, no email, no credit card.
+- **Progress that persists** - Completed lessons, last query, and attempt counts are saved to localStorage automatically.
+- **Dark mode** - Full light/dark theme toggle, persisted to localStorage, with flash-free initialisation.
+- **Completion experience** - Finishing all lessons triggers a multi-wave confetti burst and a modal with stats and next-step resources.
+- **Analytics** - Optional PostHog integration tracks lesson completions, query attempts, hint usage, and drop-off to help improve the curriculum.
 
 ## Tech Stack
 
@@ -41,7 +41,7 @@ Open the local URL shown in the terminal (usually `http://localhost:5173`).
 
 | Variable                   | Required | Default                    | Description                           |
 | -------------------------- | -------- | -------------------------- | ------------------------------------- |
-| `VITE_PUBLIC_POSTHOG_KEY`  | No       | —                          | PostHog project API key for analytics |
+| `VITE_PUBLIC_POSTHOG_KEY`  | No       | -                          | PostHog project API key for analytics |
 | `VITE_PUBLIC_POSTHOG_HOST` | No       | `https://us.i.posthog.com` | PostHog instance host                 |
 
 Analytics is a no-op when the key is not set, so you can develop without it.
@@ -65,7 +65,7 @@ src/
 ├── components/       # React components (Sidebar, MainPanel, QueryEditor, etc.)
 ├── data/             # Sample MongoDB collections (books, products, authors, etc.)
 ├── engine/           # Custom MongoDB query engine
-│   ├── query-engine.js     # Database class — high-level operations
+│   ├── query-engine.js     # Database class - high-level operations
 │   ├── pipeline-engine.js  # Aggregation pipeline executor
 │   ├── mongosh-parser.js   # MongoDB shell syntax parser
 │   ├── operators.js        # Query and expression operators
@@ -83,11 +83,11 @@ src/
 
 ## How It Works
 
-1. **Read the explanation** — Each lesson introduces one concept with a clear example.
-2. **Write the query** — Type the MongoDB query from scratch in the Monaco editor.
-3. **Run and compare** — Press `Cmd+Enter` (or `Ctrl+Enter`) to execute. See your result next to the expected output.
+1. **Read the explanation** - Each lesson introduces one concept with a clear example.
+2. **Write the query** - Type the MongoDB query from scratch in the Monaco editor.
+3. **Run and compare** - Press `Cmd+Enter` (or `Ctrl+Enter`) to execute. See your result next to the expected output.
 
-The query engine parses MongoDB shell syntax, executes against in-memory collections, and compares results using deep equality. All data is pre-loaded sample datasets — no network requests needed.
+The query engine parses MongoDB shell syntax, executes against in-memory collections, and compares results using deep equality. All data is pre-loaded sample datasets - no network requests needed.
 
 ## Architecture
 
@@ -128,7 +128,7 @@ Aggregation pipeline executor. Stages are applied sequentially against cloned do
 | `$limit` / `$skip` | Pagination |
 | `$count` | Count documents into a named field |
 | `$unwind` | Flatten arrays (supports `preserveNullAndEmptyArrays`, `includeArrayIndex`) |
-| `$lookup` | Join collections — equality form and pipeline form (with `let`/`$$vars`) |
+| `$lookup` | Join collections - equality form and pipeline form (with `let`/`$$vars`) |
 | `$replaceRoot` / `$replaceWith` | Replace each document with an expression |
 | `$bucket` | Range-based bucketing |
 | `$facet` | Multiple parallel sub-pipelines |
@@ -159,7 +159,7 @@ Top-level `Database` class. On `execute(query)`:
 
 Also handles `db.createCollection()` and implicit collection creation on `insertOne`/`insertMany`.
 
-All data lives in memory — no network, no server. Documents are deep-cloned to prevent mutation. The `$lookup` stage references other collections via a shared collections map.
+All data lives in memory - no network, no server. Documents are deep-cloned to prevent mutation. The `$lookup` stage references other collections via a shared collections map.
 
 ## Analytics
 
@@ -206,10 +206,10 @@ const { theme, toggle } = useTheme() // theme: 'light' | 'dark'
 
 `src/pages/LandingPage.jsx` is the marketing page. Notable features:
 
-- **Animated demo** — An auto-playing typewriter animation in the hero types a MongoDB query, triggers a "running" state, and fades in the result. Plays once on load.
-- **Resume banner** — Returning users see a personalised chip ("Welcome back — X/35 lessons done") and a styled Continue button with a progress bar, both linking directly to their next uncompleted lesson. Computed from localStorage on mount via a `useState` lazy initialiser.
-- **Section headings** — Each section has a small green uppercase label above the heading and a short green accent bar below, applied consistently across all five sections.
-- **FAQ accordion** — Five common questions above the final CTA, implemented with controlled `useState` per item.
+- **Animated demo** - An auto-playing typewriter animation in the hero types a MongoDB query, triggers a "running" state, and fades in the result. Plays once on load.
+- **Resume banner** - Returning users see a personalised chip ("Welcome back - X/35 lessons done") and a styled Continue button with a progress bar, both linking directly to their next uncompleted lesson. Computed from localStorage on mount via a `useState` lazy initialiser.
+- **Section headings** - Each section has a small green uppercase label above the heading and a short green accent bar below, applied consistently across all five sections.
+- **FAQ accordion** - Five common questions above the final CTA, implemented with controlled `useState` per item.
 
 ## Adding Lessons
 
@@ -231,7 +231,7 @@ const lesson = {
     </>
   ),
 
-  // Optional — expandable detail boxes:
+  // Optional - expandable detail boxes:
   howItWorks: <p>Deep dive into mechanics.</p>,
   realWorldUse: <p>Production use case.</p>,
   commonMistakes: <p>Pitfalls to avoid.</p>,
@@ -252,9 +252,9 @@ const lesson = {
   expectedResult: [{ ... }],         // array of documents the correct query returns
 
   hints: [                           // progressive hints, shown one at a time
-    'First hint — vague pointer',
-    'Second hint — more specific',
-    'Third hint — nearly the answer',
+    'First hint - vague pointer',
+    'Second hint - more specific',
+    'Third hint - nearly the answer',
   ],
 }
 
@@ -276,16 +276,16 @@ export default lesson
 | `title`           | yes      | Short display name.                                          |
 | `module`          | yes      | Module name shown in the header.                             |
 | `description`     | yes      | One-line summary for meta/SEO.                               |
-| `explanation`     | yes      | JSX — the main teaching content.                             |
+| `explanation`     | yes      | JSX - the main teaching content.                             |
 | `task`            | yes      | What the user needs to do.                                   |
 | `defaultQuery`    | yes      | The query string that passes the lesson. Used by tests.      |
 | `collections`     | yes      | Object mapping collection names to their data arrays.        |
 | `expectedResult`  | yes      | Array of documents the correct query produces.               |
 | `expectedCollections` | no   | Array of collection names that must exist in the database after the query runs. Use this when the correct answer is verified by side-effect (e.g. `createCollection`) rather than return value alone. |
 | `hints`           | no       | Array of progressive hint strings.                           |
-| `howItWorks`      | no       | JSX — expandable "How it works" box.                         |
-| `realWorldUse`    | no       | JSX — expandable "Real-world use" box.                       |
-| `commonMistakes`  | no       | JSX — expandable "Common mistakes" box.                      |
+| `howItWorks`      | no       | JSX - expandable "How it works" box.                         |
+| `realWorldUse`    | no       | JSX - expandable "Real-world use" box.                       |
+| `commonMistakes`  | no       | JSX - expandable "Common mistakes" box.                      |
 | `syntaxBreakdown` | no       | Object with `query` string and `parts` array.                |
 | `dataFlow`        | no       | Array of stage name strings for pipeline visualization.      |
 
@@ -297,12 +297,12 @@ npm run test
 
 The test suite lives in `src/lessons/lessons.test.js` and has two sections:
 
-**Lesson smoke tests** — one test per lesson (35 total). For each lesson:
+**Lesson smoke tests** - one test per lesson (35 total). For each lesson:
 1. Creates a fresh in-memory database with the lesson's collections.
 2. Executes the lesson's `defaultQuery`.
 3. Compares the result against `expectedResult` using order-insensitive deep equality.
 
-**Engine edge-case tests** — targeted unit tests for specific operator behaviors including null semantics, sort stability, `$unwind` edge cases, update modifiers, expression operators, and `$lookup` pipeline form.
+**Engine edge-case tests** - targeted unit tests for specific operator behaviors including null semantics, sort stability, `$unwind` edge cases, update modifiers, expression operators, and `$lookup` pipeline form.
 
 When adding a new lesson, write the `defaultQuery` and `expectedResult` first, then run `npm run test` to confirm they match before building the UI content.
 

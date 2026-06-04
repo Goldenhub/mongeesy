@@ -418,7 +418,7 @@ function finalizeGroup(doc) {
   return result
 }
 
-// resolveExpression — core expression evaluator
+// resolveExpression - core expression evaluator
 // vars: map of $$varName -> value for $filter/$map/$reduce/$let/$lookup pipeline
 export function resolveExpression(doc, expr, vars = {}) {
   if (expr === null || expr === undefined) return expr
@@ -545,7 +545,7 @@ export function resolveExpression(doc, expr, vars = {}) {
       return applyAggregationOperator(op, args, doc, vars)
     }
 
-    // Plain object — resolve each value
+    // Plain object - resolve each value
     const result = {}
     for (const [key, val] of Object.entries(expr)) {
       result[key] = resolveExpression(doc, val, vars)
@@ -654,7 +654,7 @@ function applyAggregationOperator(op, args, doc, vars) {
     case '$toDate': return args[0] == null ? null : new Date(args[0])
     case '$toObjectId': return args[0] // passthrough in browser context
     case '$convert': {
-      // args[0] is the resolved { input, to } object — raw args from single dispatch
+      // args[0] is the resolved { input, to } object - raw args from single dispatch
       // Actually $convert has structured args; handled separately when needed
       return args[0]
     }

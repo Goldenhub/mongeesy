@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import LandingPage from './pages/LandingPage.jsx'
 import LearnPage from './pages/LearnPage.jsx'
 import { capturePageview } from './lib/phuglytics.js'
-import { ThemeProvider } from './lib/ThemeContext.jsx'
+import ThemeProvider from './lib/ThemeContext.jsx'
 
 
 function PageTracker() {

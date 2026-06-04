@@ -434,7 +434,7 @@ export default function MainPanel({
                 {[
                   { href: 'https://www.mongodb.com/docs/', icon: '📖', title: 'MongoDB Docs', desc: 'The complete official reference for every operator and feature' },
                   { href: 'https://learn.mongodb.com/', icon: '🎓', title: 'MongoDB University', desc: 'Free courses from beginner to advanced, with certificates' },
-                  { href: 'https://www.mongodb.com/atlas', icon: '☁️', title: 'MongoDB Atlas', desc: 'Build something real — free tier with a managed cloud cluster' },
+                  { href: 'https://www.mongodb.com/atlas', icon: '☁️', title: 'MongoDB Atlas', desc: 'Build something real - free tier with a managed cloud cluster' },
                 ].map(({ href, icon, title, desc }) => (
                   <a
                     key={title}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { captureCtaClicked } from '../lib/phuglytics.js'
-import { ThemeToggle } from '../lib/ThemeContext.jsx'
+import ThemeToggle from '../components/ThemeToggle.jsx'
 import { Database } from '../engine/query-engine.js'
 import books from '../data/books.js'
 import lessons from '../lessons/index.js'
@@ -18,7 +18,7 @@ const features = [
   },
   {
     title: 'Immediate feedback',
-    desc: 'Run your query and see your result side-by-side with the expected output. Know instantly if you got it right - and what to fix if you did not.',
+    desc: 'Run your query and see your result side-by-side with the expected output. Know instantly if you got it right and what to fix if you did not.',
     icon: (
       <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="#47A248" strokeWidth="1.5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -27,7 +27,7 @@ const features = [
   },
   {
     title: '35 progressive lessons',
-    desc: 'Start with find() and work up to $bucket, $facet, and $lookup. Each lesson builds on the last - no gaps, no jumps.',
+    desc: 'Start with find() and work up to $bucket, $facet, and $lookup. Each lesson builds on the last. No gaps, no jumps.',
     icon: (
       <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="#47A248" strokeWidth="1.5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -54,7 +54,7 @@ const features = [
   },
   {
     title: 'Progress that persists',
-    desc: 'Your progress, completed lessons, and last query are saved automatically. Close the tab and come back - you will pick up right where you left off.',
+    desc: 'Your progress, completed lessons, and last query are saved automatically. Close the tab and come back. You will pick up right where you left off.',
     icon: (
       <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="#47A248" strokeWidth="1.5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M18.75 4.236c.982.143 1.954.317 2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0a6.023 6.023 0 01-2.77.896m0 0a6.022 6.022 0 01-2.77-.896" />
@@ -69,7 +69,7 @@ const modules = [
   { name: 'Aggregation Pipeline', range: '11-18', desc: '$match, $project, $group, $sort, $limit, $unwind, $addFields, $count.' },
   { name: 'Writing Data', range: '19-23', desc: 'insert, update, delete, array update operators ($push, $pop, $pull).' },
   { name: 'Advanced Queries', range: '24-29', desc: '$regex, $exists, $expr, $elemMatch, $lookup, $cond, $ifNull, dates.' },
-  { name: 'Power User', range: '30-34', desc: '$slice, $bucket, $facet, embedding vs referencing - real-world patterns.' },
+  { name: 'Power User', range: '30-34', desc: '$slice, $bucket, $facet, embedding vs referencing. Real-world patterns.' },
 ]
 
 const steps = [
@@ -81,7 +81,7 @@ const steps = [
   {
     num: '02',
     title: 'Write the query',
-    desc: 'Type the MongoDB query from scratch in the editor. No copy-paste, no fill-in-the-blank - you write the whole thing yourself.',
+    desc: 'Type the MongoDB query from scratch in the editor. No copy-paste, no fill-in-the-blank. You write the whole thing yourself.',
   },
   {
     num: '03',
@@ -93,11 +93,11 @@ const steps = [
 const faqs = [
   {
     q: 'Do I need MongoDB installed?',
-    a: 'No. The entire query engine runs in your browser using JavaScript. There is no server, no database, and no setup required — just open the page and start typing.',
+    a: 'No. The entire query engine runs in your browser using JavaScript. There is no server, no database, and no setup required. Just open the page and start typing.',
   },
   {
     q: 'Is this for complete beginners?',
-    a: 'Yes. Lessons start from the very basics — what a collection is, how documents work — and build up progressively. If you have used SQL before, you will move quickly through the early lessons.',
+    a: 'Yes. Lessons start from the very basics. What a collection is, how documents work. And build up progressively. If you have used SQL before, you will move quickly through the early lessons.',
   },
   {
     q: 'How is my progress saved?',
@@ -105,7 +105,7 @@ const faqs = [
   },
   {
     q: 'How long does it take to complete?',
-    a: 'Most people finish in 2–4 hours spread across a few sessions. You can move as fast or as slow as you need — there is no timer or deadline.',
+    a: 'Most people finish in 2-4 hours spread across a few sessions. You can move as fast or as slow as you need. There is no timer or deadline.',
   },
   {
     q: 'How accurate is the engine compared to real MongoDB?',
@@ -158,16 +158,16 @@ function AnimatedDemo() {
         <div className="w-3 h-3 rounded-full bg-red-500/80" />
         <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
         <div className="w-3 h-3 rounded-full bg-green-500/80" />
-        <span className="ml-2 text-xs text-slate-400 font-mono">mongosh — books collection</span>
+        <span className="ml-2 text-xs text-slate-400 font-mono">mongosh - books collection</span>
       </div>
 
       <div className="p-4 sm:p-5">
-        <div className="flex items-start gap-2 min-h-[1.25rem]">
+        <div className="flex items-start gap-2 min-h-5">
           <span className="text-green-400 font-mono text-xs mt-0.5 shrink-0 select-none">$</span>
           <span className="text-slate-300 font-mono text-xs leading-relaxed break-all">
             {displayedQuery}
             {phase === 'typing' && (
-              <span className="inline-block w-[2px] h-3 bg-slate-300 ml-px align-middle animate-pulse" />
+              <span className="inline-block w-0.5 h-3 bg-slate-300 ml-px align-middle animate-pulse" />
             )}
           </span>
         </div>
@@ -300,7 +300,7 @@ export default function LandingPage() {
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 16 16">
                 <path d="M3 8l3 3 7-7" />
               </svg>
-              Welcome back — {resumeInfo.count}/{resumeInfo.total} lessons done &bull; Continue →
+              Welcome back - {resumeInfo.count}/{resumeInfo.total} lessons done &bull; Continue →
             </Link>
           ) : (
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 border border-green-200 rounded-full text-xs font-medium text-green-700 mb-6">
@@ -506,7 +506,7 @@ export default function LandingPage() {
 
       <footer className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/80">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-1 py-3 sm:h-14">
-          <span className="text-xs text-slate-400 dark:text-slate-500">Mongeesy — a free, in-browser MongoDB playground</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">Mongeesy - a free, in-browser MongoDB playground</span>
           <span className="text-xs text-slate-40 text-center">
             Created by <a href="https://github.com/goldenhub" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">goldenhub</a>
             {' '}&bull;{' '}

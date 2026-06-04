@@ -16,7 +16,7 @@ export const playgroundLesson = {
     <>
       <p>
         Write any MongoDB query and see results instantly. All collections are available
-        for you to explore — there are no right answers here, just experimentation.
+        for you to explore. There are no right answers here, just experimentation.
       </p>
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 my-3">
         <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-1">

@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import MonacoEditor from '@monaco-editor/react'
-import { useTheme } from '../lib/ThemeContext.jsx'
+import { useTheme } from '../lib/useTheme.js'
 
 const DEFAULT_HEIGHT = 180
 

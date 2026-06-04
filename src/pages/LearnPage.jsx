@@ -10,7 +10,7 @@ import { captureLessonStarted, captureQueryRun, captureLessonCompleted, captureE
 import { getModuleForLesson } from '../utils/modules.js'
 import lessons from '../lessons/index.js'
 import { PLAYGROUND_LESSON_ID, playgroundLesson } from '../lib/playground.jsx'
-import { ThemeToggle } from '../lib/ThemeContext.jsx'
+import ThemeToggle from '../components/ThemeToggle.jsx'
 
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
 const modKey = isMac ? '\u2318' : 'Ctrl'
