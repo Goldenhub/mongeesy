@@ -46,6 +46,7 @@ export default function LearnPage() {
   useEffect(() => {
     if (currentLesson) {
       if (isSandbox) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setQuery(currentLesson.defaultQuery)
         setYourResult(null)
         setMatch(null)
@@ -54,7 +55,6 @@ export default function LearnPage() {
         capturePlaygroundOpened()
       } else {
         const saved = lessonStates[String(currentLessonId)]
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setQuery(saved?.lastCode || (currentLesson.id === 0 ? currentLesson.defaultQuery : placeholderText))
         setYourResult(null)
         setMatch(null)
