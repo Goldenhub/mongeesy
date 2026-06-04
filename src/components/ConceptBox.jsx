@@ -60,7 +60,7 @@ export function SyntaxBreakdown({ query, parts }) {
         <div className="space-y-2">
           {parts.map((part, i) => (
             <div key={i} className="flex items-start gap-3">
-              <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap min-w-[80px]">{part.label}</span>
+              <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap min-w-20">{part.label}</span>
               <span className="text-xs text-slate-600 dark:text-slate-400">{part.description}</span>
             </div>
           ))}
