@@ -10,6 +10,7 @@ import { captureLessonStarted, captureQueryRun, captureLessonCompleted, captureE
 import { getModuleForLesson } from '../utils/modules.js'
 import lessons from '../lessons/index.js'
 import { PLAYGROUND_LESSON_ID, playgroundLesson } from '../lib/playground.jsx'
+import { ThemeToggle } from '../lib/ThemeContext.jsx'
 
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
 const modKey = isMac ? '\u2318' : 'Ctrl'
@@ -178,8 +179,8 @@ export default function LearnPage() {
   }, [currentLesson, isSandbox])
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-slate-200 shadow-sm shrink-0">
+    <div className="h-full flex flex-col bg-white dark:bg-slate-900">
+      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm shrink-0">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSidebarOpen((s) => !s)}
@@ -196,22 +197,22 @@ export default function LearnPage() {
               </svg>
             )}
           </button>
-          <Link to="/" className="flex items-center gap-2 text-slate-900 font-bold text-sm hover:opacity-70 transition-opacity">
+          <Link to="/" className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm hover:opacity-70 transition-opacity">
             <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="#47A248">
               <path d="M17.193 9.555c-1.264-5.58-4.252-7.414-4.573-8.745-.045-.21-.112-.417-.197-.61-.06-.153-.132-.324-.15-.518v-.019c-.023-.246-.09-.575-.09-.575l-.076-.305s-.33.157-.374.32c-.065.237-.064.476-.008.714.07.333.187.655.34.961.055.112.112.223.17.334-1.038 1.028-2.072 2.21-2.886 3.428-1.59 2.38-2.63 5.256-2.63 7.92 0 4.572 3.2 7.452 6.12 8.437.524.178.874.3.874.3l.05-.026c.677.315 1.443.54 2.243.66l.146.016c.374.033.748.05 1.122.05.374 0 .748-.017 1.122-.05l.146-.016c.8-.12 1.566-.345 2.242-.66l.05.025s.35-.12.875-.3c2.92-.985 6.12-3.865 6.12-8.437 0-2.664-1.082-5.498-2.67-7.878-.814-1.217-1.848-2.4-2.886-3.428z"/>
             </svg>
             Mongeesy
           </Link>
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500">
+        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
           <a
             href="https://github.com/Goldenhub/mongeesy"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 text-slate-400 hover:text-yellow-500 transition-colors"
+            className="flex items-center gap-1 text-slate-400 hover:text-[#47A248] transition-colors"
             title="Star on GitHub"
           >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <svg className="w-3.5 h-3.5" style={{ animation: 'star-attention 4s ease-in-out infinite' }} viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z" />
             </svg>
             Star
@@ -219,12 +220,13 @@ export default function LearnPage() {
           <span>
             {countCompleted}/{lessons.length} completed
           </span>
-          <span className="text-slate-300">|</span>
-          <span className="text-slate-400 hidden sm:inline">Free &bull; No signup &bull; In-browser</span>
+          <span className="text-slate-300 dark:text-slate-600">|</span>
+          <span className="text-slate-400 dark:text-slate-500 hidden sm:inline">Free &bull; No signup &bull; In-browser</span>
+          <ThemeToggle />
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden relative bg-white dark:bg-slate-900">
         {isNarrow && sidebarOpen && (
           <div
             className="fixed inset-0 bg-black/50 z-10"

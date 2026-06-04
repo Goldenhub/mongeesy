@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { captureCtaClicked } from '../lib/phuglytics.js'
+import { ThemeToggle } from '../lib/ThemeContext.jsx'
 import { Database } from '../engine/query-engine.js'
 import books from '../data/books.js'
 import lessons from '../lessons/index.js'
@@ -204,7 +205,7 @@ function AnimatedDemo() {
 }
 
 function useResumeInfo() {
-  return useMemo(() => {
+  const [info] = useState(() => {
     try {
       const stored = localStorage.getItem('mongeesy-progress')
       if (!stored) return null
@@ -222,27 +223,28 @@ function useResumeInfo() {
     } catch {
       return null
     }
-  }, [])
+  })
+  return info
 }
 
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden">
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
       >
-        <span className="text-sm font-medium text-slate-900 pr-4">{q}</span>
+        <span className="text-sm font-medium text-slate-900 dark:text-white pr-4">{q}</span>
         <svg
-          className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"
         >
           <path d="M4 6l4 4 4-4" />
         </svg>
       </button>
       {open && (
-        <div className="px-5 pb-4 text-sm text-slate-500 leading-relaxed border-t border-slate-100 pt-3">
+        <div className="px-5 pb-4 text-sm text-slate-500 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-700 pt-3">
           {a}
         </div>
       )}
@@ -254,31 +256,32 @@ export default function LandingPage() {
   const resumeInfo = useResumeInfo()
 
   return (
-    <div className="min-h-screen bg-white">
-      <header className="border-b border-slate-200">
+    <div className="min-h-screen bg-white dark:bg-slate-900">
+      <header className="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+          <Link to="/" className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
             <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="#47A248">
               <path d="M17.193 9.555c-1.264-5.58-4.252-7.414-4.573-8.745-.045-.21-.112-.417-.197-.61-.06-.153-.132-.324-.15-.518v-.019c-.023-.246-.09-.575-.09-.575l-.076-.305s-.33.157-.374.32c-.065.237-.064.476-.008.714.07.333.187.655.34.961.055.112.112.223.17.334-1.038 1.028-2.072 2.21-2.886 3.428-1.59 2.38-2.63 5.256-2.63 7.92 0 4.572 3.2 7.452 6.12 8.437.524.178.874.3.874.3l.05-.026c.677.315 1.443.54 2.243.66l.146.016c.374.033.748.05 1.122.05.374 0 .748-.017 1.122-.05l.146-.016c.8-.12 1.566-.345 2.242-.66l.05.025s.35-.12.875-.3c2.92-.985 6.12-3.865 6.12-8.437 0-2.664-1.082-5.498-2.67-7.878-.814-1.217-1.848-2.4-2.886-3.428z"/>
             </svg>
             Mongeesy
           </Link>
           <div className="flex items-center gap-4">
-            <a href="#features" className="text-xs text-slate-500 hover:text-slate-800 hidden sm:inline">Features</a>
-            <a href="#curriculum" className="text-xs text-slate-500 hover:text-slate-800 hidden sm:inline">Curriculum</a>
+            <a href="#features" className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hidden sm:inline">Features</a>
+            <a href="#curriculum" className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hidden sm:inline">Curriculum</a>
             <Link to="/learn/playground" className="text-xs text-[#47A248] hover:text-[#3a8a3e] hidden sm:inline font-medium">Playground</Link>
             <a
               href="https://github.com/Goldenhub/mongeesy"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-slate-500 hover:text-[#47A248] transition-colors"
+              className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-[#47A248] transition-colors"
               title="Star on GitHub"
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <svg className="w-3.5 h-3.5" style={{ animation: 'star-attention 4s ease-in-out infinite' }} viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z" />
               </svg>
               Star
             </a>
+            <ThemeToggle />
             <Link to="/learn" onClick={() => captureCtaClicked('Start learning', 'header')} className="text-xs font-medium text-white bg-[#47A248] hover:bg-[#3a8a3e] px-3 py-1.5 rounded-md transition-colors whitespace-nowrap">
               Start learning
             </Link>
@@ -286,7 +289,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-16 sm:pt-28 sm:pb-20">
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-16 sm:pt-28 sm:pb-20 bg-white dark:bg-slate-900">
         <div className="text-center">
           {resumeInfo ? (
             <Link
@@ -304,11 +307,11 @@ export default function LandingPage() {
               Interactive playground &bull; No signup &bull; In-browser
             </div>
           )}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 leading-tight tracking-tight">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 dark:text-white leading-tight tracking-tight">
             Learn MongoDB in{' '}
             <span className="text-[#47A248]">your browser</span>
           </h1>
-          <p className="mt-5 text-base sm:text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed">
+          <p className="mt-5 text-base sm:text-lg text-slate-500 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
             An interactive MongoDB playground with 35 guided lessons. Type real queries,
             explore collections, see results instantly - no setup, no signup.
           </p>
@@ -361,22 +364,22 @@ export default function LandingPage() {
             { value: '$0', label: 'forever' },
             { value: '0', label: 'signup needed' },
           ].map((stat, i, arr) => (
-            <>
-              <div key={stat.label} className="px-3 sm:px-5 py-2 rounded-xl bg-slate-50 border border-slate-100 min-w-[72px]">
+            <React.Fragment key={stat.label}>
+              <div className="px-3 sm:px-5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 min-w-[72px]">
                 <div className="text-2xl sm:text-3xl font-bold text-[#47A248] tracking-tight">{stat.value}</div>
-                <div className="text-xs text-slate-500 mt-0.5 font-medium">{stat.label}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{stat.label}</div>
               </div>
-              {i < arr.length - 1 && <div key={`sep-${i}`} className="w-px h-8 bg-slate-200 hidden sm:block" />}
-            </>
+              {i < arr.length - 1 && <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 hidden sm:block" />}
+            </React.Fragment>
           ))}
         </div>
       </section>
 
-      <section id="features" className="border-t border-slate-200 bg-slate-50/50">
+      <section id="features" className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/80">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
           <div className="text-center mb-10">
             <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Features</span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">Everything you need to learn MongoDB</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-2">Everything you need to learn MongoDB</h2>
             <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
           </div>
           <p className="text-sm text-slate-500 text-center max-w-xl mx-auto -mt-6 mb-10">
@@ -384,21 +387,21 @@ export default function LandingPage() {
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {features.map((f) => (
-              <div key={f.title} className="bg-white border border-slate-200 rounded-xl p-5 hover:border-slate-300 transition-colors">
+              <div key={f.title} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
                 <div className="mb-3">{f.icon}</div>
-                <h3 className="text-sm font-semibold text-slate-900 mb-1.5">{f.title}</h3>
-                <p className="text-xs text-slate-500 leading-relaxed">{f.desc}</p>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1.5">{f.title}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{f.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="border-t border-slate-200">
+      <section className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
           <div className="text-center mb-12">
             <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Process</span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">How it works</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-2">How it works</h2>
             <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
           </div>
           <div className="space-y-8">
@@ -409,10 +412,10 @@ export default function LandingPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-base font-semibold text-slate-900">{s.title}</h3>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">{s.title}</h3>
                     {i < steps.length - 1 && <div className="hidden sm:block flex-1 h-px bg-slate-200 ml-2" />}
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">{s.desc}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{s.desc}</p>
                 </div>
               </div>
             ))}
@@ -429,11 +432,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="curriculum" className="border-t border-slate-200 bg-slate-50/50">
+      <section id="curriculum" className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/80">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
           <div className="text-center mb-10">
             <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Curriculum</span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">35 lessons across 6 modules</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-2">35 lessons across 6 modules</h2>
             <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
           </div>
           <p className="text-sm text-slate-500 text-center max-w-lg mx-auto -mt-6 mb-10">
@@ -441,12 +444,12 @@ export default function LandingPage() {
           </p>
           <div className="space-y-3">
             {modules.map((m) => (
-              <div key={m.name} className="bg-white border border-slate-200 rounded-xl px-5 py-4">
+              <div key={m.name} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-5 py-4">
                 <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-sm font-semibold text-slate-900">{m.name}</h3>
-                  <span className="text-xs font-mono text-slate-400">Lessons {m.range}</span>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{m.name}</h3>
+                  <span className="text-xs font-mono text-slate-400 dark:text-slate-500">Lessons {m.range}</span>
                 </div>
-                <p className="text-xs text-slate-500">{m.desc}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{m.desc}</p>
               </div>
             ))}
           </div>
@@ -464,11 +467,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-t border-slate-200">
+      <section className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
           <div className="text-center mb-10">
             <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">FAQ</span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">Common questions</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-2">Common questions</h2>
             <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
           </div>
           <p className="text-sm text-slate-500 text-center -mt-6 mb-10">Everything you might be wondering before you start.</p>
@@ -480,10 +483,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="border-t border-slate-200 bg-slate-50/50">
+      <section className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/80">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20 text-center">
           <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Get started</span>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2 mb-3">Ready to start writing MongoDB queries?</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-2 mb-3">Ready to start writing MongoDB queries?</h2>
           <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3 mb-3" />
           <p className="text-sm text-slate-500 mb-8 max-w-lg mx-auto">
             No setup. No signup. Just open the editor and start typing.
@@ -501,9 +504,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <footer className="border-t border-slate-200 bg-slate-50/50">
+      <footer className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/80">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-1 py-3 sm:h-14">
-          <span className="text-xs text-slate-400">Mongeesy — a free, in-browser MongoDB playground</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">Mongeesy — a free, in-browser MongoDB playground</span>
           <span className="text-xs text-slate-40 text-center">
             Created by <a href="https://github.com/goldenhub" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">goldenhub</a>
             {' '}&bull;{' '}

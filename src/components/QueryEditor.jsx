@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import MonacoEditor from '@monaco-editor/react'
+import { useTheme } from '../lib/ThemeContext.jsx'
 
 const DEFAULT_HEIGHT = 180
 
@@ -8,6 +9,7 @@ export default function QueryEditor({ value, onChange, onRun, onReset, isRunning
   const isPlaceholder = useRef(false)
   const onRunRef = useRef(onRun)
   const PLACEHOLDER = `// Enter your MongoDB query here, then press ${modKey}+Enter or click RUN`
+  const { theme } = useTheme()
 
   useEffect(() => { onRunRef.current = onRun }, [onRun])
   useEffect(() => {
@@ -46,16 +48,16 @@ export default function QueryEditor({ value, onChange, onRun, onReset, isRunning
   }, [onChange, PLACEHOLDER])
 
   return (
-    <div className="border border-slate-300 rounded-lg overflow-hidden">
-      <div className="flex items-center justify-between bg-slate-100 px-3 py-1.5 border-b border-slate-300">
-        <span className="text-xs font-mono text-slate-500">mongodb&gt;</span>
-        <span className="text-xs text-slate-400">{modKey}+Enter to run</span>
+    <div className="border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800 px-3 py-1.5 border-b border-slate-300 dark:border-slate-600">
+        <span className="text-xs font-mono text-slate-500 dark:text-slate-400">mongodb&gt;</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500">{modKey}+Enter to run</span>
       </div>
 
       <MonacoEditor
         height={DEFAULT_HEIGHT}
         language="javascript"
-        theme="light"
+        theme={theme === 'dark' ? 'vs-dark' : 'light'}
         value={value}
         onChange={handleEditorChange}
         onMount={handleMount}
@@ -88,13 +90,13 @@ export default function QueryEditor({ value, onChange, onRun, onReset, isRunning
         }}
       />
 
-      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-t border-slate-300">
+      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800 border-t border-slate-300 dark:border-slate-600">
         <button
           onClick={onRun}
           disabled={isRunning}
           className={`px-4 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5 transition-colors ${
             isRunning
-              ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
               : 'bg-[#47A248] text-white hover:bg-[#3a8a3e] active:bg-[#2d7231]'
           }`}
         >
@@ -114,7 +116,7 @@ export default function QueryEditor({ value, onChange, onRun, onReset, isRunning
         </button>
         <button
           onClick={onReset}
-          className="px-3 py-1.5 rounded-md text-sm text-slate-600 hover:bg-slate-200 transition-colors"
+          className="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
         >
           Reset
         </button>
