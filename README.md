@@ -10,6 +10,8 @@ An interactive, in-browser MongoDB playground. Write real MongoDB queries agains
 - **Hints that guide** — Progressive hints for each lesson that point you in the right direction without giving away the answer.
 - **No signup, no cost** — Everything runs client-side. No account, no email, no credit card.
 - **Progress that persists** — Completed lessons, last query, and attempt counts are saved to localStorage automatically.
+- **Dark mode** — Full light/dark theme toggle, persisted to localStorage, with flash-free initialisation.
+- **Completion experience** — Finishing all lessons triggers a multi-wave confetti burst and a modal with stats and next-step resources.
 - **Analytics** — Optional PostHog integration tracks lesson completions, query attempts, hint usage, and drop-off to help improve the curriculum.
 
 ## Tech Stack
@@ -70,7 +72,10 @@ src/
 │   ├── collection.js       # Collection class with CRUD operations
 │   └── utils.js            # Shared engine utilities (deepEqual, compareValues)
 ├── hooks/            # Custom React hooks (useProgress)
-├── lib/              # Analytics helpers (PostHog)
+├── lib/              # Shared utilities
+│   ├── phuglytics.js       # PostHog analytics wrapper
+│   ├── ThemeContext.jsx     # Dark/light theme provider, useTheme hook, ThemeToggle component
+│   └── playground.jsx      # Free-form playground lesson definition
 ├── lessons/          # 35 lesson files (one per concept)
 ├── pages/            # LandingPage and LearnPage
 └── utils/            # Helpers (modules, comparison, table formatting)
@@ -179,6 +184,32 @@ The following events are tracked when analytics is active:
 | `result_view_toggled`   | User switches between Table and JSON result view (includes `view`) |
 
 No personal data is collected. Events are associated with a random anonymous ID stored in localStorage.
+
+## Dark Mode
+
+Theme toggling is managed by `src/lib/ThemeContext.jsx`. The `ThemeProvider` wraps the entire app in `App.jsx` and exposes `useTheme()` and a ready-made `<ThemeToggle />` button component.
+
+- Preference is stored in `localStorage` under `mongeesy-theme`
+- Defaults to the OS `prefers-color-scheme` when no preference is stored
+- A flash-prevention inline script in `index.html` applies the `dark` class before React hydrates
+- Tailwind v4 class-based dark mode is configured via `@custom-variant dark` in `src/index.css`
+
+To consume the theme in a component:
+
+```js
+import { useTheme } from '../lib/ThemeContext.jsx'
+
+const { theme, toggle } = useTheme() // theme: 'light' | 'dark'
+```
+
+## Landing Page
+
+`src/pages/LandingPage.jsx` is the marketing page. Notable features:
+
+- **Animated demo** — An auto-playing typewriter animation in the hero types a MongoDB query, triggers a "running" state, and fades in the result. Plays once on load.
+- **Resume banner** — Returning users see a personalised chip ("Welcome back — X/35 lessons done") and a styled Continue button with a progress bar, both linking directly to their next uncompleted lesson. Computed from localStorage on mount via a `useState` lazy initialiser.
+- **Section headings** — Each section has a small green uppercase label above the heading and a short green accent bar below, applied consistently across all five sections.
+- **FAQ accordion** — Five common questions above the final CTA, implemented with controlled `useState` per item.
 
 ## Adding Lessons
 
