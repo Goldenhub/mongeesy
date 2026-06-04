@@ -1,5 +1,9 @@
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { captureCtaClicked } from '../lib/phuglytics.js'
+import { Database } from '../engine/query-engine.js'
+import books from '../data/books.js'
+import lessons from '../lessons/index.js'
 
 const features = [
   {
@@ -85,7 +89,170 @@ const steps = [
   },
 ]
 
+const faqs = [
+  {
+    q: 'Do I need MongoDB installed?',
+    a: 'No. The entire query engine runs in your browser using JavaScript. There is no server, no database, and no setup required — just open the page and start typing.',
+  },
+  {
+    q: 'Is this for complete beginners?',
+    a: 'Yes. Lessons start from the very basics — what a collection is, how documents work — and build up progressively. If you have used SQL before, you will move quickly through the early lessons.',
+  },
+  {
+    q: 'How is my progress saved?',
+    a: 'Your completed lessons, attempt counts, and last query are automatically saved to your browser\'s localStorage. No account needed. It persists across sessions as long as you use the same browser.',
+  },
+  {
+    q: 'How long does it take to complete?',
+    a: 'Most people finish in 2–4 hours spread across a few sessions. You can move as fast or as slow as you need — there is no timer or deadline.',
+  },
+  {
+    q: 'How accurate is the engine compared to real MongoDB?',
+    a: 'Very close for the operators and patterns covered in the lessons. The engine implements the full set of commonly-used query, aggregation, and update operators. Some advanced features like geospatial queries and full-text search are not available since they require server-side infrastructure.',
+  },
+]
+
+function execQuery(query) {
+  try {
+    const db = new Database({ books })
+    const { result } = db.execute(query)
+    return Array.isArray(result) ? result : [result]
+  } catch {
+    return []
+  }
+}
+
+const DEMO = (() => {
+  const query = `db.books.find({ rating: { $gt: 4.5 } })`
+  return { query, result: execQuery(query) }
+})()
+
+function AnimatedDemo() {
+  const [charIdx, setCharIdx] = useState(0)
+  const [phase, setPhase] = useState('typing') // typing | running | showing
+
+  const demo = DEMO
+
+  useEffect(() => {
+    let t
+    if (phase === 'typing') {
+      if (charIdx < demo.query.length) {
+        t = setTimeout(() => setCharIdx((c) => c + 1), 35 + Math.random() * 30)
+      } else {
+        t = setTimeout(() => setPhase('running'), 500)
+      }
+    } else if (phase === 'running') {
+      t = setTimeout(() => setPhase('showing'), 650)
+    }
+    return () => clearTimeout(t)
+  }, [phase, charIdx, demo.query.length])
+
+  const displayedQuery = demo.query.slice(0, charIdx)
+  const isRunning = phase === 'running'
+  const resultVisible = phase === 'showing'
+
+  return (
+    <div className="bg-slate-900 rounded-xl overflow-hidden shadow-xl border border-slate-800">
+      <div className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-800/50 border-b border-slate-700">
+        <div className="w-3 h-3 rounded-full bg-red-500/80" />
+        <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+        <div className="w-3 h-3 rounded-full bg-green-500/80" />
+        <span className="ml-2 text-xs text-slate-400 font-mono">mongosh — books collection</span>
+      </div>
+
+      <div className="p-4 sm:p-5">
+        <div className="flex items-start gap-2 min-h-[1.25rem]">
+          <span className="text-green-400 font-mono text-xs mt-0.5 shrink-0 select-none">$</span>
+          <span className="text-slate-300 font-mono text-xs leading-relaxed break-all">
+            {displayedQuery}
+            {phase === 'typing' && (
+              <span className="inline-block w-[2px] h-3 bg-slate-300 ml-px align-middle animate-pulse" />
+            )}
+          </span>
+        </div>
+
+        <div className="mt-3">
+          <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-all duration-150 ${
+            isRunning
+              ? 'bg-[#47A248] text-white shadow-lg shadow-green-900/30 scale-95'
+              : 'bg-slate-800 text-slate-500'
+          }`}>
+            {isRunning ? (
+              <>
+                <span className="w-2.5 h-2.5 border-[1.5px] border-white/30 border-t-white rounded-full animate-spin" />
+                Running...
+              </>
+            ) : 'Run'}
+          </div>
+        </div>
+      </div>
+
+      <div className={`border-t border-slate-700 transition-opacity duration-500 ${
+        resultVisible ? 'opacity-100' : 'opacity-0'
+      }`}>
+        <div className="overflow-auto max-h-48">
+          <pre className="px-5 py-3 text-xs text-slate-300 font-mono leading-relaxed">
+            {JSON.stringify(demo.result.length === 1 ? demo.result[0] : demo.result, null, 2)}
+          </pre>
+        </div>
+        <div className="px-5 py-1.5 text-xs text-slate-600 border-t border-slate-800 font-mono">
+          {demo.result.length} document{demo.result.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function useResumeInfo() {
+  return useMemo(() => {
+    try {
+      const stored = localStorage.getItem('mongeesy-progress')
+      if (!stored) return null
+      const data = JSON.parse(stored)
+      if (!data?.lessons) return null
+      const completedIds = new Set(
+        Object.entries(data.lessons)
+          .filter(([, s]) => s.completed)
+          .map(([id]) => Number(id))
+      )
+      if (completedIds.size === 0) return null
+      const firstUncompleted = lessons.find((l) => !completedIds.has(l.id))
+      const resumeLesson = firstUncompleted ?? lessons[lessons.length - 1]
+      return { count: completedIds.size, total: lessons.length, lessonId: resumeLesson.id, lessonTitle: resumeLesson.title }
+    } catch {
+      return null
+    }
+  }, [])
+}
+
+function FaqItem({ q, a }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+      >
+        <span className="text-sm font-medium text-slate-900 pr-4">{q}</span>
+        <svg
+          className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 16 16"
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-5 pb-4 text-sm text-slate-500 leading-relaxed border-t border-slate-100 pt-3">
+          {a}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LandingPage() {
+  const resumeInfo = useResumeInfo()
+
   return (
     <div className="min-h-screen bg-white">
       <header className="border-b border-slate-200">
@@ -99,12 +266,12 @@ export default function LandingPage() {
           <div className="flex items-center gap-4">
             <a href="#features" className="text-xs text-slate-500 hover:text-slate-800 hidden sm:inline">Features</a>
             <a href="#curriculum" className="text-xs text-slate-500 hover:text-slate-800 hidden sm:inline">Curriculum</a>
-            <Link to="/learn/playground" className="text-xs text-indigo-600 hover:text-indigo-800 hidden sm:inline font-medium">Playground</Link>
+            <Link to="/learn/playground" className="text-xs text-[#47A248] hover:text-[#3a8a3e] hidden sm:inline font-medium">Playground</Link>
             <a
               href="https://github.com/Goldenhub/mongeesy"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-slate-500 hover:text-yellow-500 transition-colors"
+              className="flex items-center gap-1 text-xs text-slate-500 hover:text-[#47A248] transition-colors"
               title="Star on GitHub"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
@@ -121,9 +288,22 @@ export default function LandingPage() {
 
       <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-16 sm:pt-28 sm:pb-20">
         <div className="text-center">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 border border-green-200 rounded-full text-xs font-medium text-green-700 mb-6">
-            Interactive playground &bull; No signup &bull; In-browser
-          </div>
+          {resumeInfo ? (
+            <Link
+              to={`/learn/${resumeInfo.lessonId}`}
+              onClick={() => captureCtaClicked('Resume banner', 'hero')}
+              className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 border border-green-200 rounded-full text-xs font-medium text-green-700 mb-6 hover:bg-green-100 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 16 16">
+                <path d="M3 8l3 3 7-7" />
+              </svg>
+              Welcome back — {resumeInfo.count}/{resumeInfo.total} lessons done &bull; Continue →
+            </Link>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 border border-green-200 rounded-full text-xs font-medium text-green-700 mb-6">
+              Interactive playground &bull; No signup &bull; In-browser
+            </div>
+          )}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 leading-tight tracking-tight">
             Learn MongoDB in{' '}
             <span className="text-[#47A248]">your browser</span>
@@ -143,68 +323,63 @@ export default function LandingPage() {
                 <path d="M6 3l5 5-5 5" />
               </svg>
             </Link>
-            <Link
-              to="/learn"
-              onClick={() => captureCtaClicked('Start lessons', 'hero')}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-slate-600 font-medium rounded-lg border border-slate-300 hover:border-slate-400 hover:text-slate-800 transition-colors text-sm whitespace-nowrap"
-            >
-              Start lessons
-            </Link>
+            {resumeInfo ? (
+              <Link
+                to={`/learn/${resumeInfo.lessonId}`}
+                onClick={() => captureCtaClicked('Continue lessons', 'hero')}
+                className="w-full sm:w-auto relative overflow-hidden inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-br from-green-50 to-emerald-100 text-green-900 font-medium rounded-lg border border-green-200 hover:border-green-300 hover:from-green-100 hover:to-emerald-200 transition-all text-sm whitespace-nowrap shadow-sm"
+              >
+                <svg className="w-3.5 h-3.5 text-[#47A248] shrink-0" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M4 2.5v11l9-5.5z" />
+                </svg>
+                Continue
+                <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full font-mono leading-none">{resumeInfo.count}/{resumeInfo.total}</span>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-100">
+                  <div className="h-full bg-[#47A248]" style={{ width: `${(resumeInfo.count / resumeInfo.total) * 100}%` }} />
+                </div>
+              </Link>
+            ) : (
+              <Link
+                to="/learn"
+                onClick={() => captureCtaClicked('Start lessons', 'hero')}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-slate-600 font-medium rounded-lg border border-slate-300 hover:border-slate-400 hover:text-slate-800 transition-colors text-sm whitespace-nowrap"
+              >
+                Start lessons
+              </Link>
+            )}
           </div>
         </div>
 
         <div className="mt-14 max-w-3xl mx-auto">
-          <div className="bg-slate-900 rounded-xl overflow-hidden shadow-xl border border-slate-800">
-            <div className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-800/50 border-b border-slate-700">
-              <div className="w-3 h-3 rounded-full bg-red-500/80" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-              <div className="w-3 h-3 rounded-full bg-green-500/80" />
-              <span className="ml-2 text-xs text-slate-400 font-mono">mongosh - books collection</span>
-            </div>
-            <div className="p-4 sm:p-5 font-mono text-xs leading-relaxed">
-              <div className="flex items-start gap-2">
-                <span className="text-green-400 select-none shrink-0">$</span>
-                <div>
-                  <div><span className="text-slate-300">db.books.find</span><span className="text-slate-500">(</span><span className="text-slate-300">{"{ rating: { $gt: 4.5 } }"}</span><span className="text-slate-500">)</span></div>
-                  <div className="mt-2 text-slate-400">// returns books with rating &gt; 4.5</div>
-                  <div className="mt-1.5 text-slate-500">[</div>
-                  <div className="text-slate-300 pl-3">{`{ _id: 5, title: "1984", rating: 4.6 }`}</div>
-                  <div className="text-slate-300 pl-3">{`{ _id: 6, title: "The Pragmatic Programmer", rating: 4.7 }`}</div>
-                  <div className="text-slate-300 pl-3">{`{ _id: 8, title: "Designing Data-Intensive Apps", rating: 4.8 }`}</div>
-                  <div className="text-slate-500">]</div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <AnimatedDemo />
         </div>
 
-        <div className="mt-10 flex items-center justify-center gap-8 sm:gap-12 text-center">
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">35</div>
-            <div className="text-xs text-slate-400 mt-0.5">lessons</div>
-          </div>
-          <div className="w-px h-10 bg-slate-200" />
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">6</div>
-            <div className="text-xs text-slate-400 mt-0.5">modules</div>
-          </div>
-          <div className="w-px h-10 bg-slate-200" />
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">$0</div>
-            <div className="text-xs text-slate-400 mt-0.5">forever</div>
-          </div>
-          <div className="w-px h-10 bg-slate-200" />
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">0</div>
-            <div className="text-xs text-slate-400 mt-0.5">signup needed</div>
-          </div>
+        <div className="mt-10 flex items-center justify-center gap-6 sm:gap-10 text-center">
+          {[
+            { value: '35', label: 'lessons' },
+            { value: '6', label: 'modules' },
+            { value: '$0', label: 'forever' },
+            { value: '0', label: 'signup needed' },
+          ].map((stat, i, arr) => (
+            <>
+              <div key={stat.label} className="px-3 sm:px-5 py-2 rounded-xl bg-slate-50 border border-slate-100 min-w-[72px]">
+                <div className="text-2xl sm:text-3xl font-bold text-[#47A248] tracking-tight">{stat.value}</div>
+                <div className="text-xs text-slate-500 mt-0.5 font-medium">{stat.label}</div>
+              </div>
+              {i < arr.length - 1 && <div key={`sep-${i}`} className="w-px h-8 bg-slate-200 hidden sm:block" />}
+            </>
+          ))}
         </div>
       </section>
 
       <section id="features" className="border-t border-slate-200 bg-slate-50/50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center mb-3">Everything you need to learn MongoDB</h2>
-          <p className="text-sm text-slate-500 text-center max-w-xl mx-auto mb-10">
+          <div className="text-center mb-10">
+            <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Features</span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">Everything you need to learn MongoDB</h2>
+            <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
+          </div>
+          <p className="text-sm text-slate-500 text-center max-w-xl mx-auto -mt-6 mb-10">
             No videos. No slides. Just you, the editor, and real MongoDB queries against real data.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -221,7 +396,11 @@ export default function LandingPage() {
 
       <section className="border-t border-slate-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center mb-12">How it works</h2>
+          <div className="text-center mb-12">
+            <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Process</span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">How it works</h2>
+            <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
+          </div>
           <div className="space-y-8">
             {steps.map((s, i) => (
               <div key={s.num} className="flex items-start gap-5">
@@ -252,8 +431,12 @@ export default function LandingPage() {
 
       <section id="curriculum" className="border-t border-slate-200 bg-slate-50/50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center mb-3">35 lessons across 6 modules</h2>
-          <p className="text-sm text-slate-500 text-center max-w-lg mx-auto mb-10">
+          <div className="text-center mb-10">
+            <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Curriculum</span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">35 lessons across 6 modules</h2>
+            <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
+          </div>
+          <p className="text-sm text-slate-500 text-center max-w-lg mx-auto -mt-6 mb-10">
             Start at lesson 0 and progress through, or jump to a topic you need.
           </p>
           <div className="space-y-3">
@@ -282,8 +465,26 @@ export default function LandingPage() {
       </section>
 
       <section className="border-t border-slate-200">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+          <div className="text-center mb-10">
+            <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">FAQ</span>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">Common questions</h2>
+            <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3" />
+          </div>
+          <p className="text-sm text-slate-500 text-center -mt-6 mb-10">Everything you might be wondering before you start.</p>
+          <div className="space-y-2">
+            {faqs.map((faq) => (
+              <FaqItem key={faq.q} q={faq.q} a={faq.a} />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-slate-50/50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20 text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-3">Ready to start writing MongoDB queries?</h2>
+          <span className="text-xs font-semibold text-[#47A248] uppercase tracking-widest">Get started</span>
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2 mb-3">Ready to start writing MongoDB queries?</h2>
+          <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3 mb-3" />
           <p className="text-sm text-slate-500 mb-8 max-w-lg mx-auto">
             No setup. No signup. Just open the editor and start typing.
           </p>
@@ -303,7 +504,7 @@ export default function LandingPage() {
       <footer className="border-t border-slate-200 bg-slate-50/50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-1 py-3 sm:h-14">
           <span className="text-xs text-slate-400">Mongeesy — a free, in-browser MongoDB playground</span>
-            <span className="text-xs text-slate-40 text-center">
+          <span className="text-xs text-slate-40 text-center">
             Created by <a href="https://github.com/goldenhub" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">goldenhub</a>
             {' '}&bull;{' '}
             <a href="https://linkedin.com/in/goldenazubuike" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">LinkedIn</a>
