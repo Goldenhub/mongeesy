@@ -11,11 +11,7 @@ const DEFAULTS = {
 export function loadSettings() {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY)
-    const settings = stored ? { ...DEFAULTS, ...JSON.parse(stored) } : { ...DEFAULTS }
-    if (!INTERVAL_OPTIONS.some(o => o.value === settings.intervalMinutes)) {
-      settings.intervalMinutes = DEFAULTS.intervalMinutes
-    }
-    return settings
+    return stored ? { ...DEFAULTS, ...JSON.parse(stored) } : { ...DEFAULTS }
   } catch {
     return { ...DEFAULTS }
   }
@@ -137,9 +133,6 @@ export async function isPeriodicSyncSupported() {
 }
 
 export const INTERVAL_OPTIONS = [
-  { value: 5, label: 'Every 5 minutes' },
-  { value: 10, label: 'Every 10 minutes' },
-  { value: 15, label: 'Every 15 minutes' },
   { value: 30, label: 'Every 30 minutes' },
   { value: 60, label: 'Every hour' },
   { value: 120, label: 'Every 2 hours' },
