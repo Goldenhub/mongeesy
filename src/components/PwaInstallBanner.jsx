@@ -22,7 +22,9 @@ function isStandalone() {
 export default function PwaInstallBanner() {
   const [dismissed, setDismissed] = useState(() => !!localStorage.getItem(STORAGE_KEY))
 
-  const show = !dismissed && !isStandalone() && (isIOS() || !!deferredPrompt)
+  const canInstall = !dismissed && !isStandalone() && (isIOS() || !!deferredPrompt)
+
+  if (!canInstall) return null
 
   function handleDismiss() {
     localStorage.setItem(STORAGE_KEY, '1')
@@ -39,8 +41,6 @@ export default function PwaInstallBanner() {
     }
     deferredPrompt = null
   }
-
-  if (!show) return null
 
   return (
     <div className="fixed bottom-0 inset-x-0 z-50 p-4 pb-6 pointer-events-none">
@@ -63,7 +63,7 @@ export default function PwaInstallBanner() {
           {deferredPrompt ? (
             <>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Install this app on your device for offline access and lesson reminders.
+                Install this app for offline access and lesson reminders.
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -74,8 +74,7 @@ export default function PwaInstallBanner() {
                 </button>
                 <button
                   onClick={handleInstall}
-                  disabled={!deferredPrompt}
-                  className="flex-1 px-3 py-2 text-xs font-medium text-white bg-[#47A248] rounded-lg hover:bg-[#3a8a3e] disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 px-3 py-2 text-xs font-medium text-white bg-[#47A248] rounded-lg hover:bg-[#3a8a3e] transition-colors"
                 >
                   Install
                 </button>
