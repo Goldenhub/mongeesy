@@ -88,16 +88,13 @@ export function isNotificationSupported() {
   return 'Notification' in window
 }
 
-async function showSystemNotification(lesson) {
-  try {
-    const registration = await navigator.serviceWorker.ready
-    registration.active.postMessage({
-      type: 'SHOW_REMINDER',
-      title: 'Time to practice MongoDB!',
-      body: lesson ? `Try lesson: ${lesson.title}` : 'Continue your MongoDB lessons',
-      lessonId: lesson?.id ?? null,
-    })
-  } catch { /* notification may be blocked */ }
+function showSystemNotification(lesson) {
+  new Notification('Time to practice MongoDB!', {
+    body: lesson ? `Try lesson: ${lesson.title}` : 'Continue your MongoDB lessons',
+    icon: '/pwa-192x192.png',
+    tag: 'mongeesy-reminder',
+    data: { lessonId: lesson?.id ?? null },
+  })
 }
 
 async function registerPeriodicSync(intervalMinutes) {
@@ -127,7 +124,6 @@ export async function isPeriodicSyncSupported() {
 }
 
 export const INTERVAL_OPTIONS = [
-  { value: 1, label: 'Every 1 minutes' },
   { value: 30, label: 'Every 30 minutes' },
   { value: 60, label: 'Every hour' },
   { value: 120, label: 'Every 2 hours' },

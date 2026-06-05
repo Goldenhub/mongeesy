@@ -22,19 +22,6 @@ self.addEventListener('periodicsync', (event) => {
   }
 })
 
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SHOW_REMINDER') {
-    const { title, body, lessonId } = event.data
-    self.registration.showNotification(title, {
-      body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
-      tag: 'mongeesy-reminder',
-      data: { lessonId },
-    })
-  }
-})
-
 self.addEventListener('notificationclick', (event) => {
   const lessonId = event.notification.data?.lessonId
   event.notification.close()
