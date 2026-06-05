@@ -123,6 +123,7 @@ export async function isPeriodicSyncSupported() {
 }
 
 export const INTERVAL_OPTIONS = [
+  { value: 1, label: 'Every 1 minutes' },
   { value: 30, label: 'Every 30 minutes' },
   { value: 60, label: 'Every hour' },
   { value: 120, label: 'Every 2 hours' },
