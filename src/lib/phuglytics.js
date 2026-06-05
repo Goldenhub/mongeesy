@@ -7,7 +7,7 @@ const ENABLED = !!KEY
 export function initAnalytics() {
   if (!ENABLED) return
   posthog.init(KEY, {
-    api_host: 'https://mongeesy.vercel.app/ph',
+    api_host: 'https://mongeesy.vercel.app/tt',
     capture_pageview: false,
     persistence: 'localStorage',
   })
