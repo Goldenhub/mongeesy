@@ -13,6 +13,10 @@ An interactive, in-browser MongoDB playground. Write real MongoDB queries agains
 - **Dark mode** - Full light/dark theme toggle, persisted to localStorage, with flash-free initialization.
 - **Completion experience** - Finishing all lessons triggers a multi-wave confetti burst and a modal with stats and next-step resources.
 - **Analytics** - Optional PostHog integration tracks lesson completions, query attempts, hint usage, and drop-off to help improve the curriculum.
+- **Offline first** - Full PWA with a service worker that precaches all assets. Works without a network connection.
+- **Installable** - Prompt to install as a standalone app (Android/Desktop via `beforeinstallprompt`, iOS via "Add to Home Screen" instructions).
+- **Lesson reminders** - Configurable in-app popup and system notification reminders. Periodic Background Sync (Chromium) for notifications when the app is closed; missed-reminder catch-up on return for Firefox/Safari.
+- **Offline-resilient analytics** - Analytics events queue to `localStorage` when offline and flush on reconnection, with no event loss across sessions.
 
 ## Tech Stack
 
@@ -25,6 +29,8 @@ An interactive, in-browser MongoDB playground. Write real MongoDB queries agains
 | **Monaco Editor**   | In-browser code editor       |
 | **PostHog**         | Product analytics (optional) |
 | **canvas-confetti** | Celebration animations       |
+| **vite-plugin-pwa** | PWA manifest and service worker bundling |
+| **Workbox**         | Service worker precaching    |
 | **Vitest**          | Unit testing                 |
 | **ESLint**          | Linting                      |
 
@@ -48,6 +54,18 @@ Analytics is a no-op when the key is not set, so you can develop without it.
 
 > **Note:** `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` (without `PUBLIC_`) are also accepted for compatibility.
 
+## PWA
+
+Mongeesy is a fully offline-capable Progressive Web App.
+
+- **Service worker** (`src/sw.js`) — Built with Workbox via `vite-plugin-pwa` using `injectManifest` strategy. Precaches all JS, CSS, HTML, and assets on first visit.
+- **Install prompt** (`src/components/PwaInstallBanner.jsx`) — Detects `beforeinstallprompt` (Chrome) or iOS for "Add to Home Screen" instructions. Shown on first visit and dismissible; hidden once installed.
+- **Notifications** (`src/lib/reminderService.js`) — Tab-open timer fires system notifications (`new Notification()`) and in-app popups at a configurable interval. On Chromium, Periodic Background Sync fires notifications when the app is closed. Firefox/Safari catch up on return. Requires notification permission.
+- **Notification click** — Clicking a system notification navigates to the suggested lesson via `client.navigate()` in the service worker.
+- **Offline analytics** (`src/lib/phuglytics.js`) — PostHog events queue to `localStorage` when offline and flush on `online` event or next page load. Capped at 500 events.
+
+> **Note:** Service worker is only active in production builds. Use `npm run build && npm run preview` to test PWA features locally.
+
 ## Scripts
 
 | Command           | Description                          |
@@ -62,7 +80,7 @@ Analytics is a no-op when the key is not set, so you can develop without it.
 
 ```
 src/
-├── components/       # React components (Sidebar, MainPanel, QueryEditor, etc.)
+├── components/       # React components (Sidebar, MainPanel, QueryEditor, ReminderSettings, ReminderToast, PwaInstallBanner, etc.)
 ├── data/             # Sample MongoDB collections (books, products, authors, etc.)
 ├── engine/           # Custom MongoDB query engine
 │   ├── query-engine.js     # Database class - high-level operations
@@ -73,9 +91,11 @@ src/
 │   └── utils.js            # Shared engine utilities (deepEqual, compareValues)
 ├── hooks/            # Custom React hooks (useProgress)
 ├── lib/              # Shared utilities
-│   ├── phuglytics.js       # PostHog analytics wrapper
+│   ├── phuglytics.js       # PostHog analytics wrapper with offline queue
+│   ├── reminderService.js  # Notification scheduling, Periodic Background Sync, settings
 │   ├── ThemeContext.jsx     # Dark/light theme provider, useTheme hook, ThemeToggle component
 │   └── playground.jsx      # Free-form playground lesson definition
+├── sw.js             # Service worker (Workbox precaching, notification handlers, clients.navigate)
 ├── lessons/          # 35 lesson files (one per concept)
 ├── pages/            # LandingPage and LearnPage
 └── utils/            # Helpers (modules, comparison, table formatting)
@@ -191,6 +211,12 @@ The following events are tracked when analytics is active:
 | `result_view_toggled`      | User switches between Table and JSON result view (includes `view`) |
 
 No personal data is collected. Events are associated with a random anonymous ID stored in localStorage.
+
+### Offline queue
+
+All `posthog.capture()` calls go through a wrapper in `src/lib/phuglytics.js` that queues events to `localStorage` when the browser is offline. Events are flushed when the browser comes back online (`navigator.onLine` / `online` event) and on `initAnalytics()` at the start of each session. The queue is capped at 500 events (oldest dropped first) to prevent unbounded storage growth.
+
+This means analytics events are never lost — even if the user completes lessons or runs queries while offline across multiple sessions, the events will be sent the next time a network connection is available.
 
 ## Dark Mode
 

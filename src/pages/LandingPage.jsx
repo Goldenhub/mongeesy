@@ -111,6 +111,10 @@ const faqs = [
     q: 'How accurate is the engine compared to real MongoDB?',
     a: 'Very close for the operators and patterns covered in the lessons. The engine implements the full set of commonly-used query, aggregation, and update operators. Some advanced features like geospatial queries and full-text search are not available since they require server-side infrastructure.',
   },
+  {
+    q: 'Can I use it offline? Can I install it on my phone?',
+    a: 'Yes! After your first visit, the app caches everything and works offline. On Android or desktop Chrome you can install it as a standalone app via the install banner. On iPhone, open the Share menu and tap Add to Home Screen. You can also enable lesson reminders that work even when the app is closed.',
+  },
 ]
 
 function execQuery(query) {
@@ -313,7 +317,7 @@ export default function LandingPage() {
           </h1>
           <p className="mt-5 text-base sm:text-lg text-slate-500 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
             An interactive MongoDB playground with 35 guided lessons. Type real queries,
-            explore collections, see results instantly - no setup, no signup.
+            explore collections, see results instantly - works offline, no signup needed.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 px-2 sm:px-0">
             <Link
@@ -362,7 +366,7 @@ export default function LandingPage() {
             { value: '35', label: 'lessons' },
             { value: '6', label: 'modules' },
             { value: '$0', label: 'forever' },
-            { value: '0', label: 'signup needed' },
+            { value: '\u2713', label: 'works offline' },
           ].map((stat, i, arr) => (
             <React.Fragment key={stat.label}>
               <div className="px-3 sm:px-5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 min-w-18">
@@ -489,7 +493,7 @@ export default function LandingPage() {
           <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-2 mb-3">Ready to start writing MongoDB queries?</h2>
           <div className="w-10 h-0.5 bg-[#47A248] rounded-full mx-auto mt-3 mb-3" />
           <p className="text-sm text-slate-500 mb-8 max-w-lg mx-auto">
-            No setup. No signup. Just open the editor and start typing.
+            No setup. No signup. Works offline and on your phone.
           </p>
           <Link
             to="/learn"
