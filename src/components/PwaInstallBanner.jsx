@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const STORAGE_KEY = 'mongeesy-pwa-banner-dismissed'
 
@@ -20,40 +20,27 @@ function isStandalone() {
 }
 
 export default function PwaInstallBanner() {
-  const [show, setShow] = useState(false)
   const [dismissed, setDismissed] = useState(() => !!localStorage.getItem(STORAGE_KEY))
 
-  useEffect(() => {
-    if (dismissed || isStandalone()) return
-
-    if (isIOS()) {
-      setShow(true)
-      return
-    }
-
-    if (deferredPrompt) {
-      setShow(true)
-    }
-  }, [dismissed])
+  const show = !dismissed && !isStandalone() && (isIOS() || !!deferredPrompt)
 
   function handleDismiss() {
     localStorage.setItem(STORAGE_KEY, '1')
     setDismissed(true)
-    setShow(false)
   }
 
   async function handleInstall() {
     if (!deferredPrompt) return
     deferredPrompt.prompt()
-    const result = await deferredPrompt.userChoice
-    if (result.outcome === 'accepted') {
+    const { outcome } = await deferredPrompt.userChoice
+    if (outcome === 'accepted') {
       localStorage.setItem(STORAGE_KEY, '1')
       setDismissed(true)
     }
-    setShow(false)
+    deferredPrompt = null
   }
 
-  if (!show || dismissed) return null
+  if (!show) return null
 
   return (
     <div className="fixed bottom-0 inset-x-0 z-50 p-4 pb-6 pointer-events-none">
@@ -87,7 +74,8 @@ export default function PwaInstallBanner() {
                 </button>
                 <button
                   onClick={handleInstall}
-                  className="flex-1 px-3 py-2 text-xs font-medium text-white bg-[#47A248] rounded-lg hover:bg-[#3a8a3e] transition-colors"
+                  disabled={!deferredPrompt}
+                  className="flex-1 px-3 py-2 text-xs font-medium text-white bg-[#47A248] rounded-lg hover:bg-[#3a8a3e] disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
                 >
                   Install
                 </button>
