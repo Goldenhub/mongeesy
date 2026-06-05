@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 
-export default function ReminderToast({ lesson, onDismiss }) {
+export default function ReminderToast({ lesson, onDismiss, onOpen }) {
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
@@ -22,8 +21,6 @@ export default function ReminderToast({ lesson, onDismiss }) {
   }
 
   if (!lesson) return null
-
-  const lessonPath = lesson.id === 'playground' ? '/learn/playground' : `/learn/${lesson.id}`
 
   return (
     <div
@@ -62,13 +59,12 @@ export default function ReminderToast({ lesson, onDismiss }) {
             >
               Later
             </button>
-            <Link
-              to={lessonPath}
-              onClick={onDismiss}
+            <button
+              onClick={() => onOpen(lesson)}
               className="flex-1 px-3 py-1.5 text-xs font-medium text-white bg-[#47A248] rounded-lg hover:bg-[#3a8a3e] transition-colors text-center"
             >
               Open Lesson
-            </Link>
+            </button>
           </div>
         </div>
       </div>

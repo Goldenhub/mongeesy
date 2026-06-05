@@ -113,6 +113,11 @@ export default function LearnPage() {
     navigate(id === PLAYGROUND_LESSON_ID ? '/learn/playground' : `/learn/${id}`, { replace: true })
   }, [isNarrow, navigate])
 
+  const handleToastOpen = useCallback((lesson) => {
+    setReminderToastLesson(null)
+    handleSelectLesson(lesson.id)
+  }, [handleSelectLesson])
+
   const handleQueryChange = useCallback((val) => {
     setQuery(val)
     setError(null)
@@ -343,6 +348,7 @@ export default function LearnPage() {
         <ReminderToast
           lesson={reminderToastLesson}
           onDismiss={() => setReminderToastLesson(null)}
+          onOpen={handleToastOpen}
         />
       )}
     </div>
