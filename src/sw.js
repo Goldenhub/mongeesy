@@ -2,6 +2,12 @@ import { precacheAndRoute } from 'workbox-precaching'
 
 precacheAndRoute(self.__WB_MANIFEST)
 
+self.addEventListener('install', () => self.skipWaiting())
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim())
+})
+
 self.addEventListener('periodicsync', (event) => {
   if (event.tag === 'mongeesy-reminders') {
     event.waitUntil(
@@ -33,18 +39,17 @@ self.addEventListener('notificationclick', (event) => {
   const lessonId = event.notification.data?.lessonId
   event.notification.close()
 
+  const url = lessonId ? `/learn/${lessonId}` : '/'
+
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true })
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((windowClients) => {
         for (const client of windowClients) {
-          if (client.origin === self.location.origin && 'focus' in client) {
-            const url = lessonId ? `/learn/${lessonId}` : '/'
-            client.navigate(url)
-            return client.focus()
+          if (client.origin === self.location.origin && 'navigate' in client) {
+            return client.navigate(url).then(() => client.focus())
           }
         }
-        const url = lessonId ? `/learn/${lessonId}` : '/'
-        return clients.openWindow(self.location.origin + url)
+        return self.clients.openWindow(self.location.origin + url)
       })
   )
 })

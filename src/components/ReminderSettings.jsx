@@ -132,6 +132,7 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
                   </div>
                 </label>
               </div>
+
             </>
           )}
         </div>

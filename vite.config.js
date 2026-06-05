@@ -12,9 +12,10 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.js',
       registerType: 'autoUpdate',
+      devOptions: { enabled: false },
       includeAssets: ['favicon.svg', 'pwa-icon.svg'],
       manifest: {
-        name: 'Mongeesy — Learn MongoDB in your browser',
+        name: 'Mongeesy - Learn MongoDB in your browser',
         short_name: 'Mongeesy',
         description: 'Interactive MongoDB tutorial that runs entirely in your browser. Write real queries, get instant feedback. No signup needed.',
         theme_color: '#47A248',

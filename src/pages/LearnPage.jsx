@@ -66,6 +66,19 @@ export default function LearnPage() {
     }
   }, [reminderSettings])
 
+  useEffect(() => {
+    function handleSwMessage(event) {
+      if (event.data?.type === 'NAVIGATE_LESSON' && event.data.lessonId != null) {
+        setCurrentLessonId(event.data.lessonId)
+        navigate(`/learn/${event.data.lessonId}`, { replace: true })
+      }
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage)
+      return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage)
+    }
+  }, [navigate])
+
   const currentLesson = isSandbox ? playgroundLesson : (lessons.find((l) => l.id === currentLessonId) ?? null)
 
   useEffect(() => {
