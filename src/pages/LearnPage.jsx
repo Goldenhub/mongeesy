@@ -11,6 +11,9 @@ import { getModuleForLesson } from '../utils/modules.js'
 import lessons from '../lessons/index.js'
 import { PLAYGROUND_LESSON_ID, playgroundLesson } from '../lib/playground.jsx'
 import ThemeToggle from '../components/ThemeToggle.jsx'
+import ReminderSettings from '../components/ReminderSettings.jsx'
+import ReminderToast from '../components/ReminderToast.jsx'
+import * as reminderService from '../lib/reminderService.js'
 
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
 const modKey = isMac ? '\u2318' : 'Ctrl'
@@ -34,6 +37,10 @@ export default function LearnPage() {
   const dbRef = useRef(null)
   const { lessonStates, countCompleted, updateLessonState } = useProgress()
   const isSandbox = currentLessonId === PLAYGROUND_LESSON_ID
+  const [reminderSettings, setReminderSettings] = useState(() => reminderService.loadSettings())
+  const [reminderToastLesson, setReminderToastLesson] = useState(null)
+  const [showReminderSettings, setShowReminderSettings] = useState(false)
+  const getNextLessonRef = useRef(null)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -41,6 +48,23 @@ export default function LearnPage() {
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [])
+
+  useEffect(() => {
+    getNextLessonRef.current = () => {
+      return lessons.find((l) => !lessonStates[String(l.id)]?.completed) || null
+    }
+  }, [lessonStates, lessons])
+
+  useEffect(() => {
+    const unsub = reminderService.subscribe((lesson) => {
+      setReminderToastLesson(lesson)
+    })
+    reminderService.start(reminderSettings, () => getNextLessonRef.current?.() ?? null)
+    return () => {
+      unsub()
+      reminderService.stop()
+    }
+  }, [reminderSettings])
 
   const currentLesson = isSandbox ? playgroundLesson : (lessons.find((l) => l.id === currentLessonId) ?? null)
 
@@ -222,6 +246,19 @@ export default function LearnPage() {
           </span>
           <span className="text-slate-300 dark:text-slate-600">|</span>
           <span className="text-slate-400 dark:text-slate-500 hidden sm:inline">Free &bull; No signup &bull; In-browser</span>
+          <button
+            onClick={() => setShowReminderSettings(true)}
+            className="relative p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+            title="Reminder settings"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 01-3.46 0" />
+            </svg>
+            {reminderSettings.enabled && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#47A248] rounded-full" />
+            )}
+          </button>
           <ThemeToggle />
         </div>
       </div>
@@ -276,6 +313,25 @@ export default function LearnPage() {
           </div>
         )}
       </div>
+
+      {showReminderSettings && (
+        <ReminderSettings
+          settings={reminderSettings}
+          onSave={(s) => {
+            setReminderSettings(s)
+            reminderService.saveSettings(s)
+            setShowReminderSettings(false)
+          }}
+          onClose={() => setShowReminderSettings(false)}
+        />
+      )}
+
+      {reminderToastLesson && (
+        <ReminderToast
+          lesson={reminderToastLesson}
+          onDismiss={() => setReminderToastLesson(null)}
+        />
+      )}
     </div>
   )
 }
