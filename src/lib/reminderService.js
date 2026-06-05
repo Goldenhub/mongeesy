@@ -11,7 +11,11 @@ const DEFAULTS = {
 export function loadSettings() {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY)
-    return stored ? { ...DEFAULTS, ...JSON.parse(stored) } : { ...DEFAULTS }
+    const settings = stored ? { ...DEFAULTS, ...JSON.parse(stored) } : { ...DEFAULTS }
+    if (!INTERVAL_OPTIONS.some(o => o.value === settings.intervalMinutes)) {
+      settings.intervalMinutes = DEFAULTS.intervalMinutes
+    }
+    return settings
   } catch {
     return { ...DEFAULTS }
   }
@@ -89,12 +93,21 @@ export function isNotificationSupported() {
 }
 
 function showSystemNotification(lesson) {
-  new Notification('Time to practice MongoDB!', {
-    body: lesson ? `Try lesson: ${lesson.title}` : 'Continue your MongoDB lessons',
-    icon: '/pwa-192x192.png',
-    tag: 'mongeesy-reminder',
-    data: { lessonId: lesson?.id ?? null },
-  })
+  try {
+    const notif = new Notification('Time to practice MongoDB!', {
+      body: lesson ? `Try lesson: ${lesson.title}` : 'Continue your MongoDB lessons',
+      icon: '/pwa-192x192.png',
+      tag: 'mongeesy-reminder',
+    })
+    const lessonId = lesson?.id
+    if (lessonId != null) {
+      notif.onclick = () => {
+        notif.close()
+        window.focus()
+        window.location.href = `/learn/${lessonId}`
+      }
+    }
+  } catch { /* notification not supported */ }
 }
 
 async function registerPeriodicSync(intervalMinutes) {
@@ -124,6 +137,9 @@ export async function isPeriodicSyncSupported() {
 }
 
 export const INTERVAL_OPTIONS = [
+  { value: 5, label: 'Every 5 minutes' },
+  { value: 10, label: 'Every 10 minutes' },
+  { value: 15, label: 'Every 15 minutes' },
   { value: 30, label: 'Every 30 minutes' },
   { value: 60, label: 'Every hour' },
   { value: 120, label: 'Every 2 hours' },

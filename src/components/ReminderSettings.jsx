@@ -10,11 +10,6 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
   const notifSupported = isNotificationSupported()
   const [saved, setSaved] = useState(false)
 
-  async function handleRequestPermission() {
-    const result = await requestNotificationPermission()
-    setNotifStatus(result)
-  }
-
   function handleSave() {
     onSave({
       enabled,
@@ -102,11 +97,15 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
                     )}
                   </div>
                   <div
-                    onClick={() => {
+                    onClick={async () => {
                       if (notifStatus === 'granted') {
                         setSystemNotifications((s) => !s)
                       } else if (notifSupported) {
-                        handleRequestPermission()
+                        const result = await requestNotificationPermission()
+                        setNotifStatus(result)
+                        if (result === 'granted') {
+                          setSystemNotifications(true)
+                        }
                       }
                     }}
                     className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
