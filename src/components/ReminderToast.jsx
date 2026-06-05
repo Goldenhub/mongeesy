@@ -24,7 +24,7 @@ export default function ReminderToast({ lesson, onDismiss, onOpen }) {
 
   return (
     <div
-      className={`fixed bottom-6 right-6 z-40 max-w-sm w-full transition-all duration-300 ease-out ${
+      className={`fixed bottom-6 left-6 right-6 z-40 sm:left-auto sm:right-6 sm:w-full sm:max-w-sm transition-all duration-300 ease-out ${
         visible && !leaving ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
       }`}
     >

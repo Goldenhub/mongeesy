@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { requestNotificationPermission, getPermissionStatus, INTERVAL_OPTIONS } from '../lib/reminderService.js'
+import { requestNotificationPermission, getPermissionStatus, isNotificationSupported, INTERVAL_OPTIONS } from '../lib/reminderService.js'
 
 export default function ReminderSettings({ settings, onSave, onClose }) {
   const [enabled, setEnabled] = useState(settings.enabled)
@@ -7,6 +7,7 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
   const [systemNotifications, setSystemNotifications] = useState(settings.systemNotifications)
   const [inAppNotifications, setInAppNotifications] = useState(settings.inAppNotifications)
   const [notifStatus, setNotifStatus] = useState(() => getPermissionStatus())
+  const notifSupported = isNotificationSupported()
   const [saved, setSaved] = useState(false)
 
   async function handleRequestPermission() {
@@ -92,7 +93,11 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
                     <span className="text-sm font-medium text-slate-700 dark:text-slate-300">System notifications</span>
                     {notifStatus !== 'granted' && (
                       <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                        {notifStatus === 'denied' ? 'Blocked in browser settings' : 'Not granted'}
+                        {!notifSupported
+                          ? 'Not available on this browser'
+                          : notifStatus === 'denied'
+                            ? 'Blocked — reset in your browser site settings'
+                            : 'Tap to enable'}
                       </p>
                     )}
                   </div>
@@ -100,7 +105,7 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
                     onClick={() => {
                       if (notifStatus === 'granted') {
                         setSystemNotifications((s) => !s)
-                      } else {
+                      } else if (notifSupported) {
                         handleRequestPermission()
                       }
                     }}

@@ -80,8 +80,12 @@ export async function requestNotificationPermission() {
 }
 
 export function getPermissionStatus() {
-  if (!('Notification' in window)) return 'denied'
+  if (!('Notification' in window)) return 'unsupported'
   return Notification.permission
+}
+
+export function isNotificationSupported() {
+  return 'Notification' in window
 }
 
 async function showSystemNotification(lesson) {
