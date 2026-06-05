@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 const KEY = import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN
-const HOST = import.meta.env.VITE_PUBLIC_POSTHOG_HOST 
+// const HOST = import.meta.env.VITE_PUBLIC_POSTHOG_HOST 
 const ENABLED = !!KEY
 
 export function initAnalytics() {
