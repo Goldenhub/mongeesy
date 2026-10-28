@@ -41,6 +41,7 @@ const lesson = {
   },
 
   expectedResult: sortedBooks,
+  orderBy: { price: 1 },
 
   hints: [
     'How do you sort results by a field in ascending order?',

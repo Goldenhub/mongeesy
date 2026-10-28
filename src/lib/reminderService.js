@@ -64,6 +64,19 @@ export function stop() {
   unregisterPeriodicSync()
 }
 
+// Shared with src/sw.js so background reminders can name the next lesson
+export const NEXT_LESSON_CACHE = 'mongeesy-meta'
+export const NEXT_LESSON_URL = '/__mongeesy/next-lesson'
+
+export async function setNextLessonHint(lesson) {
+  try {
+    if (!('caches' in window)) return
+    const cache = await caches.open(NEXT_LESSON_CACHE)
+    const body = JSON.stringify(lesson ? { id: lesson.id, title: lesson.title } : null)
+    await cache.put(NEXT_LESSON_URL, new Response(body, { headers: { 'Content-Type': 'application/json' } }))
+  } catch { /* cache storage unavailable */ }
+}
+
 export function subscribe(cb) {
   subscribers.push(cb)
   return () => {

@@ -43,7 +43,10 @@ const lesson = {
     books,
   },
 
-  expectedResult: [{ matchedCount: 1, modifiedCount: 1 }],
+  expectedResult: [{ acknowledged: true, insertedId: null, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 }],
+  expectedState: {
+    books: books.map((b) => (b.title === '1984' ? { ...b, copies: b.copies + 3, featured: true } : b)),
+  },
 
   hints: [
     'How can you increment a numeric field and add a new field in one update?',

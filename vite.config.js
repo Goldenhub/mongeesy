@@ -3,7 +3,17 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Mirrors the /tt PostHog proxy rewrites in vercel.json
+const posthogProxy = {
+  '/tt/static': { target: 'https://eu-assets.i.posthog.com', changeOrigin: true, rewrite: (p) => p.replace(/^\/tt/, '') },
+  '/tt/array': { target: 'https://eu-assets.i.posthog.com', changeOrigin: true, rewrite: (p) => p.replace(/^\/tt/, '') },
+  '/tt': { target: 'https://eu.i.posthog.com', changeOrigin: true, rewrite: (p) => p.replace(/^\/tt/, '') },
+}
+
 export default defineConfig({
+  server: { proxy: posthogProxy },
+  preview: { proxy: posthogProxy },
+  worker: { format: 'es' },
   plugins: [
     react(),
     tailwindcss(),

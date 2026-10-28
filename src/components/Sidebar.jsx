@@ -12,6 +12,9 @@ export default function Sidebar({ lessons, currentLessonId, lessonStates, onSele
     return true
   }
 
+  // Lessons can be taken in any order; this just points at the first unfinished one
+  const nextLessonId = lessons.find((l) => !lessonStates[String(l.id)]?.completed)?.id
+
   const totalCompleted = lessons
     ? Object.values(lessonStates).filter((s) => s.completed).length
     : 0
@@ -60,26 +63,16 @@ export default function Sidebar({ lessons, currentLessonId, lessonStates, onSele
               Introduction
             </div>
             {lessons.filter((l) => l.module === 'Introduction').map((lesson) => {
-              const state = lessonStates[String(lesson.id)]
-              const done = state?.completed === true
-              const active = lesson.id === currentLessonId
               return (
-                <button
+                <LessonButton
                   key={lesson.id}
-                  onClick={() => onSelectLesson(lesson.id)}
-                  className={`w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm transition-colors ${
-                    active
-                      ? 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400 border-l-2 border-[#47A248]'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border-l-2 border-transparent'
-                  }`}
-                >
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${
-                    done ? 'bg-[#47A248] text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                  }`}>
-                    {done ? '✓' : '★'}
-                  </span>
-                  <span className="truncate">{lesson.title}</span>
-                </button>
+                  lesson={lesson}
+                  label="★"
+                  done={lessonStates[String(lesson.id)]?.completed === true}
+                  active={lesson.id === currentLessonId}
+                  upNext={lesson.id === nextLessonId}
+                  onSelect={onSelectLesson}
+                />
               )
             })}
           </div>
@@ -93,26 +86,16 @@ export default function Sidebar({ lessons, currentLessonId, lessonStates, onSele
               </span>
             </div>
             {lessons.slice(start, end + 1).map((lesson) => {
-              const state = lessonStates[String(lesson.id)]
-              const done = state?.completed === true
-              const active = lesson.id === currentLessonId
               return (
-                <button
+                <LessonButton
                   key={lesson.id}
-                  onClick={() => onSelectLesson(lesson.id)}
-                  className={`w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm transition-colors ${
-                    active
-                      ? 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400 border-l-2 border-[#47A248]'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border-l-2 border-transparent'
-                  }`}
-                >
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${
-                    done ? 'bg-[#47A248] text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                  }`}>
-                    {done ? '✓' : lesson.id}
-                  </span>
-                  <span className="truncate">{lesson.title}</span>
-                </button>
+                  lesson={lesson}
+                  label={lesson.id}
+                  done={lessonStates[String(lesson.id)]?.completed === true}
+                  active={lesson.id === currentLessonId}
+                  upNext={lesson.id === nextLessonId}
+                  onSelect={onSelectLesson}
+                />
               )
             })}
           </div>
@@ -122,5 +105,30 @@ export default function Sidebar({ lessons, currentLessonId, lessonStates, onSele
         by <a href="https://github.com/goldenhub" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">goldenhub</a>
       </div>
     </aside>
+  )
+}
+
+function LessonButton({ lesson, label, done, active, upNext, onSelect }) {
+  return (
+    <button
+      onClick={() => onSelect(lesson.id)}
+      className={`w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm transition-colors ${
+        active
+          ? 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400 border-l-2 border-[#47A248]'
+          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border-l-2 border-transparent'
+      }`}
+    >
+      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 ${
+        done ? 'bg-[#47A248] text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+      }`}>
+        {done ? '✓' : label}
+      </span>
+      <span className="truncate">{lesson.title}</span>
+      {upNext && !active && (
+        <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#47A248] bg-green-50 dark:bg-green-950/40 px-1.5 py-0.5 rounded">
+          Up next
+        </span>
+      )}
+    </button>
   )
 }

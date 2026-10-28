@@ -1,6 +1,14 @@
 import { Collection } from './collection.js'
-import { parseQuery, evaluateArg, ParseError } from './mongosh-parser.js'
-import { compareValues } from './utils.js'
+import { parseScript } from './mongosh-parser.js'
+import { ParseError, QueryError, unknownMessage } from './errors.js'
+
+const DB_METHODS = ['createCollection', 'getCollectionNames', 'getCollection', 'dropDatabase']
+const COLLECTION_METHODS = [
+  'find', 'findOne', 'insertOne', 'insertMany', 'updateOne', 'updateMany', 'replaceOne',
+  'deleteOne', 'deleteMany', 'findOneAndUpdate', 'findOneAndReplace', 'findOneAndDelete',
+  'countDocuments', 'estimatedDocumentCount', 'distinct', 'aggregate', 'drop',
+]
+const CURSOR_METHODS = ['sort', 'limit', 'skip', 'count', 'size', 'itcount', 'pretty', 'toArray']
 
 export class Database {
   constructor(seedData = {}) {
@@ -12,163 +20,148 @@ export class Database {
   }
 
   reset() {
+    this.collections = {}
     for (const [name, docs] of Object.entries(this.seedData)) {
-      if (this.collections[name]) {
-        this.collections[name].reset(docs)
-      } else {
-        this.collections[name] = new Collection(name, docs)
-      }
+      this.collections[name] = new Collection(name, docs)
     }
   }
 
+  // Plain { name: docs[] } copy of every collection, e.g. to check what a
+  // write did or to carry playground data over to the next run
+  getState() {
+    return Object.fromEntries(
+      Object.entries(this.collections).map(([name, coll]) => [name, structuredClone(coll.docs)])
+    )
+  }
+
+  // Runs every statement in order and returns the last one's result
   execute(queryString) {
-    const parsed = parseQuery(queryString)
-    const args = parsed.argsRaw.map((a) => evaluateArg(a))
-    const method = parsed.method
+    const statements = parseScript(queryString)
+    let last
+    for (const statement of statements) {
+      last = this.executeStatement(statement)
+    }
+    return last
+  }
 
+  executeStatement(parsed) {
+    const { method, args } = parsed
     if (!parsed.collection) {
-      switch (method) {
-        case 'createCollection': {
-          const [name] = args
-          if (this.collections[name]) {
-            throw new ParseError(`Collection '${name}' already exists`)
-          }
-          this.collections[name] = new Collection(name, [])
-          return { result: { ok: 1 }, collection: null, method: 'createCollection' }
-        }
-        default: {
-          throw new ParseError(`Unknown method: db.${method}()`)
-        }
-      }
+      if (parsed.chains.length) throw new QueryError(`db.${method}() can't be followed by .${parsed.chains[0].method}()`)
+      return { result: this.runDbMethod(method, args), collection: null, method }
     }
 
-    let coll = this.collections[parsed.collection]
-    if (!coll) {
-      if (method === 'insertOne' || method === 'insertMany') {
-        this.collections[parsed.collection] = new Collection(parsed.collection, [])
-        coll = this.collections[parsed.collection]
-      } else {
-        let emptyResult
-        switch (method) {
-          case 'find': emptyResult = []; break
-          case 'findOne': emptyResult = null; break
-          case 'updateOne':
-          case 'updateMany': emptyResult = { matchedCount: 0, modifiedCount: 0 }; break
-          case 'deleteOne':
-          case 'deleteMany': emptyResult = { deletedCount: 0 }; break
-          case 'countDocuments': emptyResult = 0; break
-          case 'distinct': emptyResult = []; break
-          case 'aggregate': emptyResult = []; break
-          default: emptyResult = null
-        }
-        return { result: emptyResult, collection: parsed.collection, method }
-      }
-    }
-
+    const name = parsed.collection
+    const existing = this.collections[name]
+    const coll = existing ?? new Collection(name, [])
     let result
+    if (method === 'find') {
+      result = this.runFind(coll, args, parsed.chains)
+    } else {
+      assertNoChains(method, parsed.chains)
+      result = this.runCollectionMethod(coll, method, args)
+    }
+    // Like MongoDB, writing to a collection that doesn't exist creates it
+    if (!existing && method !== 'drop' && coll.docs.length > 0) this.collections[name] = coll
+    return { result, collection: name, method }
+  }
+
+  runDbMethod(method, args) {
     switch (method) {
-      case 'find': {
-        result = coll.find(args[0], args[1])
-        result = applyChains(result, parsed.chains)
-        break
+      case 'createCollection': {
+        const [name] = args
+        if (typeof name !== 'string' || !name) throw new QueryError('createCollection() needs a collection name string, e.g. db.createCollection("reviews")')
+        if (this.collections[name]) throw new QueryError(`Collection '${name}' already exists`)
+        this.collections[name] = new Collection(name, [])
+        return { ok: 1 }
       }
-      case 'findOne': {
-        result = coll.findOne(args[0], args[1])
-        break
-      }
-      case 'insertOne': {
-        result = coll.insertOne(args[0])
-        break
-      }
-      case 'insertMany': {
-        result = coll.insertMany(args[0])
-        break
-      }
-      case 'updateOne': {
-        result = coll.updateOne(args[0], args[1])
-        break
-      }
-      case 'updateMany': {
-        result = coll.updateMany(args[0], args[1])
-        break
-      }
-      case 'deleteOne': {
-        result = coll.deleteOne(args[0])
-        break
-      }
-      case 'deleteMany': {
-        result = coll.deleteMany(args[0])
-        break
-      }
-      case 'countDocuments': {
-        result = coll.countDocuments(args[0])
-        break
-      }
-      case 'distinct': {
-        result = coll.distinct(args[0], args[1])
-        break
-      }
-      case 'aggregate': {
-        result = coll.aggregate(args[0], this.collections)
-        break
-      }
-      default: {
-        throw new ParseError(`Unknown method: db.${parsed.collection}.${method}()`)
-      }
-    }
-
-    return { result, collection: parsed.collection, method }
-  }
-}
-
-function applyChains(results, chains) {
-  let docs = Array.isArray(results) ? [...results] : results
-
-  for (const chain of chains) {
-    switch (chain.method) {
-      case 'sort': {
-        const sortSpec = chain.args[0]
-        if (!sortSpec) break
-        docs = [...docs].sort((a, b) => {
-          for (const [field, order] of Object.entries(sortSpec)) {
-            const aVal = resolveField(a, field)
-            const bVal = resolveField(b, field)
-            const cmp = compareValues(aVal, bVal)
-            if (cmp !== 0) return cmp * order
-          }
-          return 0
-        })
-        break
-      }
-      case 'limit': {
-        const n = chain.args[0]
-        docs = docs.slice(0, n)
-        break
-      }
-      case 'skip': {
-        const n = chain.args[0]
-        docs = docs.slice(n)
-        break
-      }
-      case 'count': {
-        docs = docs.length
-        break
-      }
-      case 'pretty': {
-        break
-      }
+      case 'getCollectionNames':
+        return Object.keys(this.collections).sort()
+      case 'dropDatabase':
+        this.collections = {}
+        return { ok: 1 }
+      default:
+        throw new ParseError(unknownMessage('method', method, DB_METHODS, (s) => `db.${s}()`))
     }
   }
 
-  return docs
+  runFind(coll, args, chains) {
+    const [query, projection] = args
+    const opts = { sort: undefined, skip: 0, limit: 0 }
+    let terminal = null
+    for (const chain of chains) {
+      if (terminal) throw new QueryError(`.${terminal}() returns a number, so .${chain.method}() can't follow it`)
+      const [arg] = chain.args
+      switch (chain.method) {
+        case 'sort':
+          if (arg === undefined) throw new QueryError('.sort() needs an object like { price: 1 }')
+          opts.sort = arg
+          break
+        case 'limit':
+          if (typeof arg !== 'number' || !Number.isInteger(arg)) throw new QueryError('.limit() needs a whole number')
+          opts.limit = arg
+          break
+        case 'skip':
+          if (typeof arg !== 'number' || !Number.isInteger(arg) || arg < 0) throw new QueryError('.skip() needs a non-negative whole number')
+          opts.skip = arg
+          break
+        case 'count':
+        case 'size':
+        case 'itcount':
+          terminal = chain.method
+          break
+        case 'pretty':
+        case 'toArray':
+          break
+        default:
+          throw new ParseError(unknownMessage('cursor method', chain.method, CURSOR_METHODS, (s) => `.${s}()`))
+      }
+    }
+    // cursor.count() ignores skip/limit unless you pass true; size() and itcount() apply them
+    if (terminal === 'count' && chains.find((c) => c.method === 'count').args[0] !== true) {
+      return coll.find(query, projection).length
+    }
+    const docs = coll.find(query, projection, opts)
+    return terminal ? docs.length : docs
+  }
+
+  runCollectionMethod(coll, method, args) {
+    switch (method) {
+      case 'findOne': return coll.findOne(args[0], args[1])
+      case 'insertOne': return coll.insertOne(args[0])
+      case 'insertMany': return coll.insertMany(args[0])
+      case 'updateOne': return coll.updateOne(args[0], args[1], args[2])
+      case 'updateMany': return coll.updateMany(args[0], args[1], args[2])
+      case 'replaceOne': return coll.replaceOne(args[0], args[1], args[2])
+      case 'deleteOne': return coll.deleteOne(args[0])
+      case 'deleteMany': return coll.deleteMany(args[0])
+      case 'findOneAndUpdate': return coll.findOneAndUpdate(args[0], args[1], args[2])
+      case 'findOneAndReplace': return coll.findOneAndReplace(args[0], args[1], args[2])
+      case 'findOneAndDelete': return coll.findOneAndDelete(args[0], args[1])
+      case 'countDocuments': return coll.countDocuments(args[0], args[1])
+      case 'estimatedDocumentCount': return coll.estimatedDocumentCount()
+      case 'distinct': return coll.distinct(args[0], args[1])
+      case 'aggregate': return coll.aggregate(args[0], this.collections)
+      case 'drop': {
+        const existed = coll.name in this.collections
+        delete this.collections[coll.name]
+        return existed
+      }
+      default:
+        throw new ParseError(unknownMessage('method', method, COLLECTION_METHODS, (s) => `db.${coll.name}.${s}()`))
+    }
+  }
 }
 
-function resolveField(doc, field) {
-  const parts = field.split('.')
-  let val = doc
-  for (const part of parts) {
-    if (val == null) return undefined
-    val = val[part]
+function assertNoChains(method, chains) {
+  if (chains.length === 0) return
+  const next = chains[0].method
+  if (method === 'aggregate' && chains.every((c) => c.method === 'toArray' || c.method === 'pretty')) return
+  if (method === 'findOne') {
+    throw new QueryError(`findOne() returns a single document, not a cursor, so .${next}() can't be chained. Use find().${next}(...) instead.`)
   }
-  return val
+  if (method === 'aggregate') {
+    throw new QueryError(`.${next}() can't be chained on aggregate(). Use a pipeline stage instead, e.g. { $${next === 'count' ? 'count: "total"' : `${next}: ...`} }.`)
+  }
+  throw new QueryError(`${method}() doesn't return a cursor, so .${next}() can't be chained`)
 }

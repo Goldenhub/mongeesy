@@ -7,6 +7,13 @@ import { HowItWorks, RealWorldUse, CommonMistakes, SyntaxBreakdown, DataFlow } f
 import { getModuleForLesson, getShortModuleName } from '../utils/modules.js'
 import { captureHintViewed, captureCollectionsPanelOpened } from '../lib/phuglytics.js'
 
+const MISMATCH_MESSAGES = {
+  result: "Your result doesn't match the expected output. Check your query and try again.",
+  order: 'You returned the right documents, but not in the right order. Check your sort.',
+  state: "Your query ran, but the collection's data afterwards isn't what the task asks for. Check which documents you changed and how.",
+  collections: "The collection the task asks for doesn't exist yet. Check its name.",
+}
+
 export default function MainPanel({
   lesson,
   query,
@@ -16,6 +23,7 @@ export default function MainPanel({
   isRunning,
   yourResult,
   match,
+  mismatchReason,
   error,
   modKey,
   onNextLesson,
@@ -29,10 +37,17 @@ export default function MainPanel({
   const [showMobileCollections, setShowMobileCollections] = useState(false)
   const [completionModalOpen, setCompletionModalOpen] = useState(false)
   const prevMatch = useRef(null)
+  const [lastMatch, setLastMatch] = useState(match)
 
   const hints = lesson?.hints ?? (lesson?.hint ? [lesson.hint] : null)
   const hintCount = hints?.length ?? 0
   const allLessonsDone = countCompleted === totalLessons
+
+  // Open the completion modal while rendering the new match, not in an effect
+  if (match !== lastMatch) {
+    setLastMatch(match)
+    if (match === true && allLessonsDone) setCompletionModalOpen(true)
+  }
 
   useEffect(() => {
     if (showHint) {
@@ -45,7 +60,6 @@ export default function MainPanel({
     if (match === true && prevMatch.current !== true) {
       const colors = ['#47A248', '#22c55e', '#16a34a', '#4ade80', '#86efac', '#fbbf24', '#f59e0b']
       if (allLessonsDone) {
-        setCompletionModalOpen(true)
         confetti({ particleCount: 60, spread: 160, origin: { y: 0.4 }, colors, ticks: 100 })
         timers.push(setTimeout(() => {
           confetti({ angle: 60, particleCount: 50, spread: 70, origin: { x: 0, y: 0.5 }, colors, ticks: 90 })
@@ -143,7 +157,7 @@ export default function MainPanel({
                 </svg>
                 <div>
                   <p className="text-sm font-medium text-red-800 dark:text-red-400">Query Error</p>
-                  <p className="text-sm text-red-600 dark:text-red-400 font-mono mt-0.5">{error}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-mono mt-0.5 whitespace-pre-wrap break-words">{error}</p>
                 </div>
               </div>
             )}
@@ -293,7 +307,7 @@ export default function MainPanel({
                 </svg>
                 <div>
                   <p className="text-sm font-medium text-red-800 dark:text-red-400">Query Error</p>
-                  <p className="text-sm text-red-600 dark:text-red-400 font-mono mt-0.5">{error}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-mono mt-0.5 whitespace-pre-wrap break-words">{error}</p>
                 </div>
               </div>
             )}
@@ -362,7 +376,7 @@ export default function MainPanel({
                   <path d="M8 5v4M8 11v0" />
                 </svg>
                 <p className="text-sm text-red-700 dark:text-red-400">
-                  Your result doesn't match the expected output. Check your query and try again.
+                  {MISMATCH_MESSAGES[mismatchReason] ?? MISMATCH_MESSAGES.result}
                   {hints && (
                     <button
                       onClick={() => setShowHint(true)}

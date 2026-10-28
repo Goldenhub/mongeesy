@@ -110,7 +110,8 @@ db.movies.insertOne({ title: "Inception", year: 2010, rating: 8.8 })`}
 
   collections: {},
 
-  expectedResult: [{ _id: 1, title: 'Inception', year: 2010, rating: 8.8 }],
+  // Graded on the data written, so any valid insert of this document passes
+  expectedState: { movies: [{ _id: 1, title: 'Inception', year: 2010, rating: 8.8 }] },
 
   hints: [
     'You need to insert a document into a collection that does not exist yet',

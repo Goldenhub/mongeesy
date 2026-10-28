@@ -1,44 +1,64 @@
 import { evaluateQuery } from './operators.js'
-import { deepEqual, compareValues } from './utils.js'
-import { getNestedValue, setNestedValue, unsetNestedValue } from './collection.js'
+import {
+  deepEqual, compareValues, typeRank, canonicalKey, isPlainObject, isTruthy,
+  getNestedValue, setNestedValue, unsetNestedValue, getPathValues,
+} from './utils.js'
+import { QueryError, unknownMessage } from './errors.js'
+import { sortDocs } from './collection.js'
+
+const STAGES = [
+  '$match', '$project', '$sort', '$limit', '$skip', '$count', '$addFields', '$set', '$unset',
+  '$unwind', '$group', '$lookup', '$bucket', '$facet', '$replaceRoot', '$replaceWith', '$sample',
+  '$sortByCount',
+]
+const ACCUMULATORS = [
+  '$sum', '$avg', '$min', '$max', '$push', '$addToSet', '$first', '$last', '$count', '$stdDevPop', '$stdDevSamp',
+]
 
 export function executePipeline(ctx, pipeline) {
   if (!Array.isArray(pipeline)) {
-    throw new Error('Aggregation pipeline must be an array')
+    throw new QueryError('aggregate() needs an array of stages, e.g. aggregate([ { $match: {...} } ])')
   }
 
   let docs = ctx.collection.docs.map((d) => structuredClone(d))
 
   for (const stage of pipeline) {
+    if (!isPlainObject(stage) || Object.keys(stage).length !== 1) {
+      throw new QueryError('Each pipeline stage must be an object with exactly one stage, e.g. { $match: { genre: "fiction" } }')
+    }
     const stageName = Object.keys(stage)[0]
     const stageParams = stage[stageName]
 
     switch (stageName) {
       case '$match':
+        if (!isPlainObject(stageParams)) throw new QueryError('$match needs a filter object')
         docs = docs.filter((doc) => evaluateQuery(doc, stageParams))
         break
       case '$project':
+        if (!isPlainObject(stageParams) || Object.keys(stageParams).length === 0) {
+          throw new QueryError('$project needs a non-empty object, e.g. { $project: { title: 1 } }')
+        }
         docs = docs.map((doc) => applyProjectStage(doc, stageParams))
         break
       case '$sort':
-        docs = [...docs].sort((a, b) => {
-          for (const [field, order] of Object.entries(stageParams)) {
-            const aVal = resolveField(a, field)
-            const bVal = resolveField(b, field)
-            const cmp = compareValues(aVal, bVal)
-            if (cmp !== 0) return cmp * order
-          }
-          return 0
-        })
+        docs = sortDocs(docs, stageParams)
         break
       case '$limit':
+        if (!Number.isInteger(stageParams) || stageParams <= 0) throw new QueryError('$limit needs a positive whole number')
         docs = docs.slice(0, stageParams)
         break
       case '$skip':
+        if (!Number.isInteger(stageParams) || stageParams < 0) throw new QueryError('$skip needs a non-negative whole number')
         docs = docs.slice(stageParams)
         break
       case '$count':
-        docs = [{ [stageParams]: docs.length }]
+        if (typeof stageParams !== 'string' || !stageParams || stageParams.startsWith('$') || stageParams.includes('.')) {
+          throw new QueryError('$count needs a field name string, e.g. { $count: "total" }')
+        }
+        docs = docs.length ? [{ [stageParams]: docs.length }] : []
+        break
+      case '$sortByCount':
+        docs = sortDocs(applyGroup(docs, { _id: stageParams, count: { $sum: 1 } }), { count: -1 })
         break
       case '$addFields':
       case '$set':
@@ -69,13 +89,20 @@ export function executePipeline(ctx, pipeline) {
         docs = applyFacet(docs, stageParams, ctx)
         break
       case '$replaceRoot':
-        docs = docs.map((doc) => structuredClone(resolveExpression(doc, stageParams.newRoot)))
+      case '$replaceWith': {
+        const expr = stageName === '$replaceRoot' ? stageParams?.newRoot : stageParams
+        docs = docs.map((doc) => {
+          const root = resolveExpression(doc, expr)
+          if (!isPlainObject(root)) {
+            throw new QueryError(`${stageName} must produce a document, but got ${root === undefined ? 'a missing value' : JSON.stringify(root)}`)
+          }
+          return structuredClone(root)
+        })
         break
-      case '$replaceWith':
-        docs = docs.map((doc) => structuredClone(resolveExpression(doc, stageParams)))
-        break
+      }
       case '$sample': {
-        const size = stageParams.size ?? 0
+        const size = stageParams?.size
+        if (!Number.isInteger(size) || size < 0) throw new QueryError('$sample needs { size: n }')
         const shuffled = [...docs]
         for (let i = shuffled.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1))
@@ -84,8 +111,11 @@ export function executePipeline(ctx, pipeline) {
         docs = shuffled.slice(0, size)
         break
       }
+      case '$out':
+      case '$merge':
+        throw new QueryError(`${stageName} isn't supported in this sandbox - the pipeline result is shown instead of being written to a collection`)
       default:
-        throw new Error(`Unknown aggregation stage: ${stageName}`)
+        throw new QueryError(unknownMessage('pipeline stage', stageName, STAGES))
     }
   }
 
@@ -99,29 +129,38 @@ function resolveField(doc, path) {
   return getNestedValue(doc, path)
 }
 
+// 1 / true / 0 / false are inclusion flags; anything else is a computed field
+function isProjectionFlag(val) {
+  return typeof val === 'boolean' || typeof val === 'number'
+}
+
 function applyProjectStage(doc, spec) {
-  const includes = Object.values(spec).some((v) => v === 1)
-  const result = {}
+  const entries = Object.entries(spec)
+  const includes = entries.some(([key, v]) => key !== '_id' && (!isProjectionFlag(v) || Boolean(v)))
+    || (entries.length === 1 && entries[0][0] === '_id' && Boolean(entries[0][1]))
+  let result = {}
 
   if (includes) {
-    for (const [key, val] of Object.entries(spec)) {
-      if (val === 1) {
+    for (const [key, val] of entries) {
+      if (isProjectionFlag(val)) {
+        if (!val) {
+          if (key !== '_id') throw new QueryError(`Can't exclude '${key}' in a $project that includes fields. Only _id may be excluded.`)
+          continue
+        }
         const srcVal = getNestedValue(doc, key)
         if (srcVal !== undefined) setNestedValue(result, key, structuredClone(srcVal))
-      } else if (typeof val === 'string' && val.startsWith('$')) {
-        result[key] = resolveField(doc, val.slice(1))
-      } else if (typeof val === 'object' && val !== null) {
+      } else {
         const computed = resolveExpression(doc, val)
-        if (computed !== undefined) result[key] = computed
+        if (computed !== undefined) setNestedValue(result, key, structuredClone(computed))
       }
     }
     if (!('_id' in spec)) {
-      result._id = structuredClone(doc._id)
+      result = { _id: structuredClone(doc._id), ...result }
     }
   } else {
     Object.assign(result, structuredClone(doc))
-    for (const [key, val] of Object.entries(spec)) {
-      if (val === 0) unsetNestedValue(result, key)
+    for (const [key, val] of entries) {
+      if (!val) unsetNestedValue(result, key)
     }
   }
 
@@ -129,34 +168,44 @@ function applyProjectStage(doc, spec) {
 }
 
 function applyAddFields(doc, spec) {
+  if (!isPlainObject(spec)) throw new QueryError('$addFields / $set needs an object of new fields')
   const result = structuredClone(doc)
   for (const [field, expr] of Object.entries(spec)) {
-    result[field] = resolveExpression(doc, expr)
+    const value = resolveExpression(doc, expr)
+    if (value === undefined) unsetNestedValue(result, field)
+    else setNestedValue(result, field, structuredClone(value))
   }
   return result
 }
 
 function applyUnwind(doc, fieldPath) {
-  let fieldName, preserveNullAndEmptyArrays = false, includeArrayIndex = null
+  let rawPath, preserveNullAndEmptyArrays = false, includeArrayIndex = null
 
   if (typeof fieldPath === 'string') {
-    fieldName = fieldPath.startsWith('$') ? fieldPath.slice(1) : fieldPath
-  } else {
-    const rawPath = fieldPath.path ?? ''
-    fieldName = rawPath.startsWith('$') ? rawPath.slice(1) : rawPath
+    rawPath = fieldPath
+  } else if (isPlainObject(fieldPath)) {
+    rawPath = fieldPath.path
     preserveNullAndEmptyArrays = fieldPath.preserveNullAndEmptyArrays ?? false
     includeArrayIndex = fieldPath.includeArrayIndex ?? null
   }
+  if (typeof rawPath !== 'string' || !rawPath.startsWith('$') || rawPath.length < 2) {
+    throw new QueryError('$unwind needs a field path that starts with $, e.g. { $unwind: "$tags" }')
+  }
+  const fieldName = rawPath.slice(1)
 
   const arr = getNestedValue(doc, fieldName)
 
-  if (!Array.isArray(arr)) {
-    return preserveNullAndEmptyArrays ? [structuredClone(doc)] : []
+  // A non-array value is treated as a one-element array
+  if (arr != null && !Array.isArray(arr)) {
+    const result = structuredClone(doc)
+    if (includeArrayIndex) result[includeArrayIndex] = null
+    return [result]
   }
-  if (arr.length === 0) {
+  if (arr == null || arr.length === 0) {
     if (preserveNullAndEmptyArrays) {
       const result = structuredClone(doc)
-      unsetNestedValue(result, fieldName)
+      if (Array.isArray(arr)) unsetNestedValue(result, fieldName)
+      if (includeArrayIndex) result[includeArrayIndex] = null
       return [result]
     }
     return []
@@ -170,252 +219,212 @@ function applyUnwind(doc, fieldPath) {
   })
 }
 
+function parseAccumulators(spec, stageName, skip = []) {
+  return Object.entries(spec)
+    .filter(([field]) => !skip.includes(field))
+    .map(([field, val]) => {
+      if (!isPlainObject(val) || Object.keys(val).length !== 1) {
+        throw new QueryError(`${stageName} field '${field}' must be an accumulator object like { $sum: "$price" }`)
+      }
+      const op = Object.keys(val)[0]
+      if (!ACCUMULATORS.includes(op)) throw new QueryError(unknownMessage('accumulator', op, ACCUMULATORS))
+      return { field, op, expr: val[op] }
+    })
+}
+
+function newAccumulatorState(op) {
+  switch (op) {
+    case '$sum': case '$count': return { value: 0 }
+    case '$avg': return { sum: 0, n: 0 }
+    case '$push': case '$addToSet': return { value: [] }
+    case '$stdDevPop': case '$stdDevSamp': return { values: [] }
+    default: return { value: null, seen: false }
+  }
+}
+
+// Mirrors MongoDB: $sum/$avg/$stdDev* ignore non-numbers, $min/$max ignore
+// null and missing, $push/$addToSet skip missing values.
+function accumulate(state, op, val) {
+  switch (op) {
+    case '$sum':
+      if (typeof val === 'number') state.value += val
+      break
+    case '$count':
+      state.value += 1
+      break
+    case '$avg':
+      if (typeof val === 'number') {
+        state.sum += val
+        state.n++
+      }
+      break
+    case '$min':
+    case '$max': {
+      if (val == null) break
+      const cmp = state.seen ? compareValues(val, state.value) : 0
+      if (!state.seen || (op === '$min' ? cmp < 0 : cmp > 0)) {
+        state.value = val
+        state.seen = true
+      }
+      break
+    }
+    case '$first':
+      if (!state.seen) {
+        state.value = val === undefined ? null : val
+        state.seen = true
+      }
+      break
+    case '$last':
+      state.value = val === undefined ? null : val
+      break
+    case '$push':
+      if (val !== undefined) state.value.push(structuredClone(val))
+      break
+    case '$addToSet':
+      if (val !== undefined && !state.value.some((v) => deepEqual(v, val))) state.value.push(structuredClone(val))
+      break
+    case '$stdDevPop':
+    case '$stdDevSamp':
+      if (typeof val === 'number') state.values.push(val)
+      break
+  }
+}
+
+function finalizeAccumulator(state, op) {
+  switch (op) {
+    case '$sum': return roundNum(state.value)
+    case '$avg': return state.n ? roundNum(state.sum / state.n) : null
+    case '$stdDevPop':
+    case '$stdDevSamp': {
+      const vals = state.values
+      const n = vals.length
+      if (op === '$stdDevPop' ? n === 0 : n < 2) return null
+      const mean = vals.reduce((s, v) => s + v, 0) / n
+      const squares = vals.reduce((s, v) => s + (v - mean) ** 2, 0)
+      return roundNum(Math.sqrt(squares / (op === '$stdDevPop' ? n : n - 1)))
+    }
+    default: return state.value
+  }
+}
+
+function finalizeGroup(id, accumulators, states) {
+  const result = { _id: id }
+  accumulators.forEach((acc, i) => {
+    result[acc.field] = finalizeAccumulator(states[i], acc.op)
+  })
+  return result
+}
+
 function applyGroup(docs, spec) {
-  const idExpr = spec._id
+  if (!isPlainObject(spec) || !('_id' in spec)) {
+    throw new QueryError('$group needs an _id. Use _id: "$field" to group by a field, or _id: null to group everything together.')
+  }
+  const accumulators = parseAccumulators(spec, '$group', ['_id'])
   const groups = new Map()
 
   for (const doc of docs) {
-    let groupKey
-    if (idExpr === null) {
-      groupKey = '__nogroup__'
-    } else if (typeof idExpr === 'string' && idExpr.startsWith('$')) {
-      groupKey = JSON.stringify(resolveField(doc, idExpr.slice(1)))
-    } else if (typeof idExpr === 'object' && idExpr !== null) {
-      groupKey = JSON.stringify(
-        Object.fromEntries(
-          Object.entries(idExpr).map(([k, v]) => [k, resolveExpression(doc, v)])
-        )
-      )
-    } else {
-      groupKey = JSON.stringify(resolveExpression(doc, idExpr))
+    let id = resolveExpression(doc, spec._id)
+    if (id === undefined) id = null
+    if (isPlainObject(id)) id = Object.fromEntries(Object.entries(id).filter(([, v]) => v !== undefined))
+    const key = canonicalKey(id, { nullForMissing: true })
+    if (!groups.has(key)) {
+      groups.set(key, { id: structuredClone(id), states: accumulators.map((a) => newAccumulatorState(a.op)) })
     }
-
-    if (!groups.has(groupKey)) {
-      let parsedId
-      if (groupKey === JSON.stringify(null) || groupKey === '__nogroup__') {
-        parsedId = null
-      } else {
-        try { parsedId = JSON.parse(groupKey) } catch { parsedId = groupKey }
-      }
-      groups.set(groupKey, { _id: parsedId })
-    }
-
-    const group = groups.get(groupKey)
-    for (const [key, val] of Object.entries(spec)) {
-      if (key === '_id') continue
-      if (typeof val === 'object' && val !== null) {
-        const op = Object.keys(val)[0]
-        const expr = val[op]
-        accumulate(group, key, op, expr, doc)
-      }
-    }
+    const group = groups.get(key)
+    accumulators.forEach((acc, i) => accumulate(group.states[i], acc.op, resolveExpression(doc, acc.expr)))
   }
 
-  return [...groups.values()].map(finalizeGroup)
+  return [...groups.values()].map((g) => finalizeGroup(g.id, accumulators, g.states))
 }
 
-function accumulate(group, field, op, expr, doc) {
-  const val = resolveExpression(doc, expr)
+// Values a join key can match on: array elements individually, and a
+// missing field as null (so it pairs with null / missing foreign values)
+function joinValues(doc, path) {
+  return getPathValues(doc, path)
+    .flatMap((v) => (Array.isArray(v) ? v : [v]))
+    .map((v) => (v === undefined ? null : v))
+}
 
-  switch (op) {
-    case '$sum': {
-      group[field] = (group[field] ?? 0) + (typeof val === 'number' ? val : (val ? 1 : 0))
-      break
-    }
-    case '$avg': {
-      if (typeof val === 'number') {
-        group[field] = (group[field] ?? 0) + val
-        group[`__avg_count_${field}`] = (group[`__avg_count_${field}`] ?? 0) + 1
-      }
-      break
-    }
-    case '$min': {
-      if (group[field] === undefined || compareValues(val, group[field]) < 0) group[field] = val
-      break
-    }
-    case '$max': {
-      if (group[field] === undefined || compareValues(val, group[field]) > 0) group[field] = val
-      break
-    }
-    case '$push': {
-      if (!group[field]) group[field] = []
-      group[field].push(val)
-      break
-    }
-    case '$addToSet': {
-      if (!group[field]) group[field] = []
-      if (!group[field].some((item) => deepEqual(item, val))) {
-        group[field].push(val)
-      }
-      break
-    }
-    case '$first': {
-      if (!(field in group)) group[field] = val
-      break
-    }
-    case '$last': {
-      group[field] = val
-      break
-    }
-    case '$count': {
-      group[field] = (group[field] ?? 0) + 1
-      break
-    }
-    case '$stdDevPop':
-    case '$stdDevSamp': {
-      if (typeof val === 'number') {
-        if (!group[`__stddev_vals_${field}`]) group[`__stddev_vals_${field}`] = []
-        group[`__stddev_vals_${field}`].push(val)
-      }
-      break
-    }
-  }
+function joinMatches(localValues, foreignDoc, foreignField) {
+  const foreignValues = joinValues(foreignDoc, foreignField)
+  return localValues.some((l) => foreignValues.some((f) => deepEqual(l, f)))
 }
 
 function applyLookup(docs, spec, ctx) {
+  if (!isPlainObject(spec)) throw new QueryError('$lookup needs an object with from, localField, foreignField and as')
   const { from, localField, foreignField, as, pipeline: subPipeline, let: letSpec } = spec
-
-  const foreignCollection = ctx.collections[from]
-  if (!foreignCollection) return docs.map((doc) => ({ ...doc, [as]: [] }))
-
-  if (subPipeline) {
-    return docs.map((doc) => {
-      const vars = {}
-      if (letSpec) {
-        for (const [varName, expr] of Object.entries(letSpec)) {
-          vars[varName] = resolveExpression(doc, expr)
-        }
-      }
-      // Substitute $$varName references in the pipeline with their resolved values
-      const substituted = substituteVars(subPipeline, vars)
-      const subCtx = {
-        collection: foreignCollection,
-        collections: ctx.collections,
-      }
-      const result = executePipeline(subCtx, substituted)
-      return { ...doc, [as]: result }
-    })
+  if (typeof from !== 'string' || !from) throw new QueryError('$lookup needs from: the name of the collection to join')
+  if (typeof as !== 'string' || !as) throw new QueryError('$lookup needs as: the name of the new array field')
+  const hasJoinFields = localField !== undefined || foreignField !== undefined
+  if (hasJoinFields && (typeof localField !== 'string' || typeof foreignField !== 'string')) {
+    throw new QueryError('$lookup needs both localField and foreignField as strings')
+  }
+  if (!hasJoinFields && subPipeline === undefined) {
+    throw new QueryError('$lookup needs localField and foreignField, or a pipeline')
   }
 
+  const foreignDocs = ctx.collections[from]?.docs ?? []
+
   return docs.map((doc) => {
-    const localVal = resolveField(doc, localField)
-    const matches = foreignCollection.docs.filter((foreignDoc) => {
-      const foreignVal = resolveField(foreignDoc, foreignField)
-      if (Array.isArray(localVal)) {
-        return localVal.includes(foreignVal)
+    let matches = foreignDocs
+    if (hasJoinFields) {
+      const localValues = joinValues(doc, localField)
+      matches = foreignDocs.filter((f) => joinMatches(localValues, f, foreignField))
+    }
+    if (subPipeline !== undefined) {
+      if (!Array.isArray(subPipeline)) throw new QueryError('$lookup pipeline must be an array of stages')
+      const vars = {}
+      for (const [varName, expr] of Object.entries(letSpec ?? {})) {
+        vars[varName] = resolveExpression(doc, expr)
       }
-      return localVal === foreignVal
-    })
-    return { ...doc, [as]: matches }
+      matches = executePipeline({ collection: { docs: matches }, collections: ctx.collections }, substituteVars(subPipeline, vars))
+    }
+    const result = structuredClone(doc)
+    setNestedValue(result, as, matches.map((m) => structuredClone(m)))
+    return result
   })
 }
 
 function applyBucket(docs, spec) {
-  const { groupBy, boundaries, default: defaultBucket, output } = spec
-  const buckets = []
-
-  for (let i = 0; i < boundaries.length - 1; i++) {
-    const bucket = { _id: boundaries[i] }
-    if (output) {
-      for (const [outField, outExpr] of Object.entries(output)) {
-        const op = Object.keys(outExpr)[0]
-        initAccumulator(bucket, outField, op)
-      }
-    } else {
-      bucket.count = 0
-    }
-    buckets.push(bucket)
+  if (!isPlainObject(spec)) throw new QueryError('$bucket needs an object with groupBy and boundaries')
+  const { groupBy, boundaries, default: defaultId, output } = spec
+  if (groupBy === undefined) throw new QueryError('$bucket needs groupBy, e.g. groupBy: "$price"')
+  if (!Array.isArray(boundaries) || boundaries.length < 2) {
+    throw new QueryError('$bucket needs at least two boundaries, e.g. boundaries: [0, 100, 200]')
   }
-
-  const defaultBucketObj = defaultBucket !== undefined ? { _id: defaultBucket } : null
-  if (defaultBucketObj) {
-    if (output) {
-      for (const [outField, outExpr] of Object.entries(output)) {
-        const op = Object.keys(outExpr)[0]
-        initAccumulator(defaultBucketObj, outField, op)
-      }
-    } else {
-      defaultBucketObj.count = 0
+  for (let i = 1; i < boundaries.length; i++) {
+    if (typeRank(boundaries[i]) !== typeRank(boundaries[0]) || compareValues(boundaries[i - 1], boundaries[i]) >= 0) {
+      throw new QueryError('$bucket boundaries must all be the same type and in ascending order')
     }
   }
+  const accumulators = output !== undefined
+    ? parseAccumulators(output, '$bucket')
+    : [{ field: 'count', op: '$sum', expr: 1 }]
 
+  const buckets = new Map()
   for (const doc of docs) {
     const val = resolveExpression(doc, groupBy)
-
-    let placed = false
-    for (let i = 0; i < boundaries.length - 1; i++) {
-      if (val >= boundaries[i] && val < boundaries[i + 1]) {
-        if (output) {
-          for (const [outField, outExpr] of Object.entries(output)) {
-            const op = Object.keys(outExpr)[0]
-            const expr = outExpr[op]
-            accumulate(buckets[i], outField, op, expr, doc)
-          }
-        } else {
-          buckets[i].count++
+    let idx = -1
+    if (val !== undefined && typeRank(val) === typeRank(boundaries[0])) {
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        if (compareValues(val, boundaries[i]) >= 0 && compareValues(val, boundaries[i + 1]) < 0) {
+          idx = i
+          break
         }
-        placed = true
-        break
       }
     }
-
-    if (!placed && defaultBucketObj) {
-      if (output) {
-        for (const [outField, outExpr] of Object.entries(output)) {
-          const op = Object.keys(outExpr)[0]
-          const expr = outExpr[op]
-          accumulate(defaultBucketObj, outField, op, expr, doc)
-        }
-      } else {
-        defaultBucketObj.count++
-      }
+    if (idx === -1 && defaultId === undefined) {
+      throw new QueryError(`$bucket couldn't place a document (groupBy value ${val === undefined ? 'missing' : JSON.stringify(val)}) in any range, and no default was given. Add default: "Other".`)
     }
+    if (!buckets.has(idx)) buckets.set(idx, accumulators.map((a) => newAccumulatorState(a.op)))
+    const states = buckets.get(idx)
+    accumulators.forEach((acc, i) => accumulate(states[i], acc.op, resolveExpression(doc, acc.expr)))
   }
 
-  const result = [...buckets]
-  if (defaultBucketObj) result.push(defaultBucketObj)
-
-  return result.map(finalizeGroup)
-}
-
-function initAccumulator(obj, field, op) {
-  switch (op) {
-    case '$sum': case '$avg': case '$count':
-      obj[field] = 0; break
-    case '$push': case '$addToSet':
-      obj[field] = []; break
-    case '$min': case '$max': case '$first': case '$last':
-      obj[field] = undefined; break
-  }
-}
-
-function finalizeGroup(doc) {
-  const result = {}
-  for (const [key, val] of Object.entries(doc)) {
-    if (key.startsWith('__avg_count_') || key.startsWith('__stddev_vals_')) continue
-    const countKey = `__avg_count_${key}`
-    if (countKey in doc) {
-      const count = doc[countKey]
-      if (count > 0) {
-        result[key] = roundNum(val / count)
-        continue
-      }
-      result[key] = null
-      continue
-    }
-    const valsKey = `__stddev_vals_${key}`
-    if (valsKey in doc) {
-      const vals = doc[valsKey] ?? []
-      if (vals.length === 0) { result[key] = null; continue }
-      const mean = vals.reduce((s, v) => s + v, 0) / vals.length
-      const isPopKey = key + '_pop'
-      const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (key.endsWith('Pop') ? vals.length : Math.max(1, vals.length - 1))
-      result[key] = roundNum(Math.sqrt(variance))
-      continue
-    }
-    result[key] = val
-  }
-  return result
+  // Like MongoDB, only buckets that received documents are returned
+  return [...buckets.entries()]
+    .sort(([a], [b]) => (a === -1 ? 1 : b === -1 ? -1 : a - b))
+    .map(([idx, states]) => finalizeGroup(idx === -1 ? defaultId : boundaries[idx], accumulators, states))
 }
 
 // resolveExpression - core expression evaluator
@@ -423,14 +432,11 @@ function finalizeGroup(doc) {
 export function resolveExpression(doc, expr, vars = {}) {
   if (expr === null || expr === undefined) return expr
   if (typeof expr === 'string') {
-    if (expr.startsWith('$$')) {
-      const varName = expr.slice(2)
-      return varName in vars ? vars[varName] : undefined
-    }
+    if (expr.startsWith('$$')) return resolveVariable(doc, expr.slice(2), vars)
     if (expr.startsWith('$')) return resolveField(doc, expr.slice(1))
     return expr
   }
-  if (typeof expr === 'number' || typeof expr === 'boolean') return expr
+  if (typeof expr === 'number' || typeof expr === 'boolean' || expr instanceof Date || expr instanceof RegExp) return expr
 
   if (Array.isArray(expr)) {
     return expr.map((e) => resolveExpression(doc, e, vars))
@@ -451,7 +457,7 @@ export function resolveExpression(doc, expr, vars = {}) {
       if (!Array.isArray(arr)) return []
       return arr.filter((item) => {
         const newVars = { ...vars, [asVar]: item }
-        return !!resolveExpression(doc, cond, newVars)
+        return isTruthy(resolveExpression(doc, cond, newVars))
       })
     }
     if ('$map' in expr) {
@@ -482,14 +488,32 @@ export function resolveExpression(doc, expr, vars = {}) {
     }
 
     if ('$dateToString' in expr) {
-      const { format, date, timezone } = expr.$dateToString
+      const { format, date, timezone, onNull } = expr.$dateToString
       const d = resolveExpression(doc, date, vars)
-      return dateToString(d instanceof Date ? d : new Date(d), format)
+      if (d == null) return onNull !== undefined ? resolveExpression(doc, onNull, vars) : null
+      const tz = timezone !== undefined ? resolveExpression(doc, timezone, vars) : undefined
+      return dateToString(toDate(d), resolveExpression(doc, format, vars) ?? undefined, tz)
     }
     if ('$dateFromString' in expr) {
-      const { dateString, format } = expr.$dateFromString
+      const { dateString, format, timezone, onError, onNull } = expr.$dateFromString
       const s = resolveExpression(doc, dateString, vars)
-      return new Date(s)
+      if (s == null) return onNull !== undefined ? resolveExpression(doc, onNull, vars) : null
+      const tz = timezone !== undefined ? resolveExpression(doc, timezone, vars) : undefined
+      const parsed = dateFromString(String(s), format !== undefined ? resolveExpression(doc, format, vars) : undefined, tz)
+      if (parsed) return parsed
+      if (onError !== undefined) return resolveExpression(doc, onError, vars)
+      throw new QueryError(`$dateFromString couldn't parse ${JSON.stringify(s)}${format ? ` with format "${format}"` : ''}`)
+    }
+    if ('$convert' in expr) {
+      const { input, to, onError, onNull } = expr.$convert
+      const value = resolveExpression(doc, input, vars)
+      if (value == null) return onNull !== undefined ? resolveExpression(doc, onNull, vars) : null
+      try {
+        return convertValue(value, resolveExpression(doc, to, vars))
+      } catch (err) {
+        if (onError !== undefined) return resolveExpression(doc, onError, vars)
+        throw err
+      }
     }
 
     if ('$regexMatch' in expr) {
@@ -542,7 +566,7 @@ export function resolveExpression(doc, expr, vars = {}) {
       const args = Array.isArray(rawArgs)
         ? rawArgs.map((a) => resolveExpression(doc, a, vars))
         : [resolveExpression(doc, rawArgs, vars)]
-      return applyAggregationOperator(op, args, doc, vars)
+      return applyAggregationOperator(op, args)
     }
 
     // Plain object - resolve each value
@@ -556,113 +580,159 @@ export function resolveExpression(doc, expr, vars = {}) {
   return expr
 }
 
-function applyAggregationOperator(op, args, doc, vars) {
+function resolveVariable(doc, name, vars) {
+  const [varName, ...path] = name.split('.')
+  let value
+  if (varName in vars) value = vars[varName]
+  else if (varName === 'ROOT' || varName === 'CURRENT') value = doc
+  else if (varName === 'NOW') value = new Date()
+  else if (varName === 'REMOVE') return undefined
+  else throw new QueryError(`Undefined variable $$${varName}. Define it with $let, the "as" option of $filter / $map, or "let" in $lookup.`)
+  return path.length ? getNestedValue(value, path.join('.')) : value
+}
+
+// Arithmetic and most operators return null when an input is null or missing
+const hasNullish = (args) => args.some((a) => a == null)
+
+function requireNumbers(op, args) {
+  const bad = args.find((a) => typeof a !== 'number' && !(a instanceof Date))
+  if (bad !== undefined) throw new QueryError(`${op} only works with numbers, but got ${JSON.stringify(bad)}`)
+}
+
+// A single array argument means "operate on the array's elements"
+const spread = (args) => (args.length === 1 && Array.isArray(args[0]) ? args[0] : args)
+
+function requireArrayArg(op, v) {
+  if (!Array.isArray(v)) throw new QueryError(`The argument to ${op} must be an array, but got ${v === undefined ? 'a missing field' : JSON.stringify(v)}`)
+}
+
+function applyAggregationOperator(op, args) {
   switch (op) {
-    // Arithmetic (in expressions)
-    case '$sum': return args.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)
+    // Arithmetic
+    case '$sum': return roundNum(spread(args).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0))
     case '$avg': {
-      const nums = args.filter((a) => typeof a === 'number')
+      const nums = spread(args).filter((a) => typeof a === 'number')
       return nums.length ? roundNum(nums.reduce((a, b) => a + b, 0) / nums.length) : null
     }
-    case '$min': return args.reduce((a, b) => (compareValues(b, a) < 0 ? b : a))
-    case '$max': return args.reduce((a, b) => (compareValues(b, a) > 0 ? b : a))
-    case '$add': return args.reduce((a, b) => {
-      if (a instanceof Date) return new Date(a.getTime() + b)
-      if (b instanceof Date) return new Date(b.getTime() + a)
-      return roundNum(a + b)
-    })
-    case '$subtract': return (() => {
+    case '$min':
+    case '$max': {
+      const vals = spread(args).filter((a) => a != null)
+      if (!vals.length) return null
+      return vals.reduce((a, b) => {
+        const cmp = compareValues(b, a)
+        return (op === '$min' ? cmp < 0 : cmp > 0) ? b : a
+      })
+    }
+    case '$add': {
+      if (hasNullish(args)) return null
+      requireNumbers(op, args)
+      const date = args.find((a) => a instanceof Date)
+      const total = args.reduce((s, a) => s + (a instanceof Date ? a.getTime() : a), 0)
+      return date ? new Date(total) : roundNum(total)
+    }
+    case '$subtract': {
       const [a, b] = args
+      if (a == null || b == null) return null
+      requireNumbers(op, args)
       if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime()
       if (a instanceof Date) return new Date(a.getTime() - b)
       return roundNum(a - b)
-    })()
-    case '$multiply': return roundNum(args.reduce((a, b) => a * b, 1))
-    case '$divide': return roundNum(args[0] / args[1])
-    case '$mod': return roundNum(args[0] % args[1])
-    case '$abs': return Math.abs(args[0])
-    case '$ceil': return Math.ceil(args[0])
-    case '$floor': return Math.floor(args[0])
-    case '$round': {
-      const [val, place = 0] = args
-      const factor = 10 ** place
-      return Math.round(val * factor) / factor
     }
-    case '$sqrt': return Math.sqrt(args[0])
-    case '$pow': return Math.pow(args[0], args[1])
-    case '$log': return Math.log(args[0]) / Math.log(args[1])
-    case '$ln': return Math.log(args[0])
-    case '$log10': return Math.log10(args[0])
+    case '$multiply':
+      if (hasNullish(args)) return null
+      requireNumbers(op, args)
+      return roundNum(args.reduce((a, b) => a * b, 1))
+    case '$divide':
+      if (hasNullish(args)) return null
+      requireNumbers(op, args)
+      if (args[1] === 0) throw new QueryError("Can't $divide by zero")
+      return roundNum(args[0] / args[1])
+    case '$mod':
+      if (hasNullish(args)) return null
+      requireNumbers(op, args)
+      if (args[1] === 0) throw new QueryError("Can't $mod by zero")
+      return roundNum(args[0] % args[1])
+    case '$abs': return args[0] == null ? null : Math.abs(args[0])
+    case '$ceil': return args[0] == null ? null : Math.ceil(args[0])
+    case '$floor': return args[0] == null ? null : Math.floor(args[0])
+    case '$round':
     case '$trunc': {
       const [val, place = 0] = args
+      if (val == null) return null
       const factor = 10 ** place
-      return Math.trunc(val * factor) / factor
+      return roundNum((op === '$round' ? Math.round : Math.trunc)(val * factor) / factor)
     }
-    case '$exp': return Math.exp(args[0])
+    case '$sqrt': return args[0] == null ? null : Math.sqrt(args[0])
+    case '$pow': return hasNullish(args) ? null : Math.pow(args[0], args[1])
+    case '$log': return hasNullish(args) ? null : Math.log(args[0]) / Math.log(args[1])
+    case '$ln': return args[0] == null ? null : Math.log(args[0])
+    case '$log10': return args[0] == null ? null : Math.log10(args[0])
+    case '$exp': return args[0] == null ? null : Math.exp(args[0])
 
-    // Comparison (expression form)
-    case '$lt': return args[0] < args[1]
-    case '$gt': return args[0] > args[1]
-    case '$lte': return args[0] <= args[1]
-    case '$gte': return args[0] >= args[1]
-    case '$eq': return deepEqual(args[0], args[1])
-    case '$ne': return !deepEqual(args[0], args[1])
+    // Comparison (BSON order, so null < numbers < strings ...)
+    case '$lt': return compareValues(args[0], args[1]) < 0
+    case '$gt': return compareValues(args[0], args[1]) > 0
+    case '$lte': return compareValues(args[0], args[1]) <= 0
+    case '$gte': return compareValues(args[0], args[1]) >= 0
+    case '$eq': return deepEqual(args[0] ?? null, args[1] ?? null)
+    case '$ne': return !deepEqual(args[0] ?? null, args[1] ?? null)
+    case '$cmp': return Math.sign(compareValues(args[0], args[1]))
 
-    // Logical (expression form)
-    case '$and': return args.every(Boolean)
-    case '$or': return args.some(Boolean)
-    case '$not': return !args[0]
+    // Logical
+    case '$and': return args.every(isTruthy)
+    case '$or': return args.some(isTruthy)
+    case '$not': return !isTruthy(args[0])
 
     // String
     case '$toUpper': return String(args[0] ?? '').toUpperCase()
     case '$toLower': return String(args[0] ?? '').toLowerCase()
-    case '$substr': {
+    case '$substr':
+    case '$substrBytes': {
       const [str, start, length] = args
-      return String(str).substring(start, start + length)
+      if (str == null) return ''
+      return String(str).substring(start, length < 0 ? undefined : start + length)
     }
     case '$substrCP': {
       const [str, start, length] = args
+      if (str == null) return ''
       return [...String(str)].slice(start, start + length).join('')
     }
-    case '$substrBytes': {
-      const [str, start, length] = args
-      return String(str).slice(start, start + length)
+    case '$concat': {
+      if (hasNullish(args)) return null
+      const bad = args.find((a) => typeof a !== 'string')
+      if (bad !== undefined) throw new QueryError(`$concat only joins strings, but got ${JSON.stringify(bad)}. Convert it with $toString first.`)
+      return args.join('')
     }
-    case '$concat': return args.map((a) => a == null ? '' : String(a)).join('')
     case '$split': {
       const [str, delim] = args
-      if (str == null) return []
+      if (str == null) return null
       return String(str).split(String(delim))
     }
     case '$strLenCP': return [...String(args[0] ?? '')].length
     case '$strLenBytes': return new TextEncoder().encode(String(args[0] ?? '')).length
-    case '$indexOfCP': {
-      const [str, sub, start = 0] = args
-      return [...String(str)].join('').indexOf(String(sub), start)
-    }
+    case '$indexOfCP':
     case '$indexOfBytes': {
       const [str, sub, start = 0] = args
+      if (str == null) return null
       return String(str).indexOf(String(sub), start)
     }
+    case '$strcasecmp': return Math.sign(String(args[0] ?? '').toLowerCase().localeCompare(String(args[1] ?? '').toLowerCase()))
 
     // Type conversion
-    case '$toString': return args[0] == null ? null : String(args[0])
-    case '$toInt': return args[0] == null ? null : Math.trunc(Number(args[0]))
-    case '$toLong': return args[0] == null ? null : Math.trunc(Number(args[0]))
-    case '$toDouble': return args[0] == null ? null : Number(args[0])
-    case '$toBool': return args[0] == null ? null : Boolean(args[0])
-    case '$toDate': return args[0] == null ? null : new Date(args[0])
-    case '$toObjectId': return args[0] // passthrough in browser context
-    case '$convert': {
-      // args[0] is the resolved { input, to } object - raw args from single dispatch
-      // Actually $convert has structured args; handled separately when needed
-      return args[0]
-    }
+    case '$toString': return args[0] == null ? null : convertValue(args[0], 'string')
+    case '$toInt':
+    case '$toLong': return args[0] == null ? null : convertValue(args[0], 'int')
+    case '$toDouble':
+    case '$toDecimal': return args[0] == null ? null : convertValue(args[0], 'double')
+    case '$toBool': return args[0] == null ? null : convertValue(args[0], 'bool')
+    case '$toDate': return args[0] == null ? null : convertValue(args[0], 'date')
+    case '$toObjectId': return args[0] // ObjectIds are plain hex strings in this sandbox
     case '$type': {
       const v = args[0]
       if (v === null) return 'null'
       if (v === undefined) return 'missing'
       if (v instanceof Date) return 'date'
+      if (v instanceof RegExp) return 'regex'
       if (Array.isArray(v)) return 'array'
       if (typeof v === 'object') return 'object'
       if (typeof v === 'string') return 'string'
@@ -676,28 +746,38 @@ function applyAggregationOperator(op, args, doc, vars) {
     // Array
     case '$arrayElemAt': {
       const [arr, idx] = args
-      if (!Array.isArray(arr)) return undefined
+      if (arr == null) return null
+      requireArrayArg(op, arr)
       return arr[idx < 0 ? arr.length + idx : idx]
     }
-    case '$concatArrays': return args.reduce((a, b) => [...(a ?? []), ...(Array.isArray(b) ? b : [])], [])
-    case '$size': {
-      const v = args[0]
-      return Array.isArray(v) ? v.length : typeof v === 'string' ? v.length : null
-    }
+    case '$concatArrays':
+      if (hasNullish(args)) return null
+      args.forEach((a) => requireArrayArg(op, a))
+      return args.flat(1)
+    case '$size':
+      requireArrayArg(op, args[0])
+      return args[0].length
     case '$slice': {
       const [arr, posOrN, maybeN] = args
-      if (!Array.isArray(arr)) return arr
-      if (maybeN !== undefined) return arr.slice(posOrN, posOrN + maybeN)
+      if (arr == null) return null
+      requireArrayArg(op, arr)
+      if (maybeN !== undefined) {
+        const start = posOrN < 0 ? Math.max(arr.length + posOrN, 0) : posOrN
+        return arr.slice(start, start + maybeN)
+      }
       return posOrN >= 0 ? arr.slice(0, posOrN) : arr.slice(posOrN)
     }
-    case '$reverseArray': {
-      if (!Array.isArray(args[0])) return args[0]
+    case '$reverseArray':
+      if (args[0] == null) return null
+      requireArrayArg(op, args[0])
       return [...args[0]].reverse()
-    }
-    case '$in': return Array.isArray(args[1]) && args[1].some((v) => deepEqual(v, args[0]))
+    case '$in':
+      requireArrayArg(op, args[1])
+      return args[1].some((v) => deepEqual(v, args[0]))
     case '$indexOfArray': {
       const [arr, search, start = 0] = args
-      if (!Array.isArray(arr)) return -1
+      if (arr == null) return null
+      requireArrayArg(op, arr)
       for (let i = start; i < arr.length; i++) {
         if (deepEqual(arr[i], search)) return i
       }
@@ -705,33 +785,40 @@ function applyAggregationOperator(op, args, doc, vars) {
     }
     case '$range': {
       const [start, end, step = 1] = args
+      if (step === 0) throw new QueryError('$range step cannot be 0')
+      if (Math.abs((end - start) / step) > 100000) throw new QueryError('$range would produce more than 100,000 numbers')
       const result = []
       for (let i = start; step > 0 ? i < end : i > end; i += step) result.push(i)
       return result
     }
-    case '$first': {
-      const v = args[0]
-      return Array.isArray(v) ? v[0] : v
-    }
+    case '$first':
     case '$last': {
       const v = args[0]
-      return Array.isArray(v) ? v[v.length - 1] : v
+      if (v == null) return null
+      requireArrayArg(op, v)
+      return op === '$first' ? v[0] : v[v.length - 1]
     }
     case '$zip': {
-      // args[0] = resolved { inputs, useLongestLength, defaults }
       const [spec] = args
-      if (!spec || !Array.isArray(spec.inputs)) return []
+      if (!spec || !Array.isArray(spec.inputs)) throw new QueryError('$zip needs { inputs: [array1, array2, ...] }')
       const arrays = spec.inputs
+      if (arrays.some((a) => a == null)) return null
       const len = spec.useLongestLength
-        ? Math.max(...arrays.map((a) => a?.length ?? 0))
-        : Math.min(...arrays.map((a) => a?.length ?? 0))
+        ? Math.max(...arrays.map((a) => a.length))
+        : Math.min(...arrays.map((a) => a.length))
       return Array.from({ length: len }, (_, i) =>
-        arrays.map((a, j) => a?.[i] ?? (spec.defaults?.[j] ?? null))
+        arrays.map((a, j) => (i < a.length ? a[i] : (spec.defaults?.[j] ?? null)))
       )
     }
 
     // Set operators
-    case '$setUnion': return [...new Set(args.flat().map((v) => JSON.stringify(v)))].map((v) => JSON.parse(v))
+    case '$setUnion': {
+      const out = []
+      for (const item of args.flat(1)) {
+        if (!out.some((v) => deepEqual(v, item))) out.push(item)
+      }
+      return out
+    }
     case '$setIntersection': {
       const [a, ...rest] = args
       return (a ?? []).filter((item) => rest.every((arr) => (arr ?? []).some((v) => deepEqual(v, item))))
@@ -751,17 +838,19 @@ function applyAggregationOperator(op, args, doc, vars) {
       if (!Array.isArray(a) || !Array.isArray(b)) return false
       return a.every((item) => b.some((v) => deepEqual(v, item)))
     }
+    case '$anyElementTrue': requireArrayArg(op, spread(args)); return spread(args).some(isTruthy)
+    case '$allElementsTrue': requireArrayArg(op, spread(args)); return spread(args).every(isTruthy)
 
     // Object
-    case '$mergeObjects': return Object.assign({}, ...args.filter((a) => a != null))
+    case '$mergeObjects': return Object.assign({}, ...spread(args).filter((a) => a != null))
     case '$objectToArray': {
       const obj = args[0]
-      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return []
+      if (obj == null) return null
+      if (!isPlainObject(obj)) throw new QueryError('$objectToArray needs a document')
       return Object.entries(obj).map(([k, v]) => ({ k, v }))
     }
     case '$arrayToObject': {
-      const arr = args[0]
-      if (!Array.isArray(arr)) return {}
+      const arr = spread(args)
       const result = {}
       for (const item of arr) {
         if (Array.isArray(item) && item.length === 2) result[item[0]] = item[1]
@@ -794,23 +883,80 @@ function applyAggregationOperator(op, args, doc, vars) {
       const day = d.getUTCDay()
       return day === 0 ? 7 : day
     }
-    case '$toDate': return toDate(args[0])
 
     // Other
     case '$rand': return Math.random()
 
-    default: return args[0]
+    default:
+      throw new QueryError(unknownMessage('expression operator', op, EXPRESSION_OPERATORS))
+  }
+}
+
+const EXPRESSION_OPERATORS = [
+  '$sum', '$avg', '$min', '$max', '$add', '$subtract', '$multiply', '$divide', '$mod', '$abs', '$ceil',
+  '$floor', '$round', '$trunc', '$sqrt', '$pow', '$log', '$ln', '$log10', '$exp', '$lt', '$gt', '$lte',
+  '$gte', '$eq', '$ne', '$cmp', '$and', '$or', '$not', '$toUpper', '$toLower', '$substr', '$substrCP',
+  '$substrBytes', '$concat', '$split', '$strLenCP', '$strLenBytes', '$indexOfCP', '$indexOfBytes',
+  '$strcasecmp', '$toString', '$toInt', '$toLong', '$toDouble', '$toDecimal', '$toBool', '$toDate',
+  '$toObjectId', '$type', '$isArray', '$isNumber', '$arrayElemAt', '$concatArrays', '$size', '$slice',
+  '$reverseArray', '$in', '$indexOfArray', '$range', '$first', '$last', '$zip', '$setUnion',
+  '$setIntersection', '$setDifference', '$setEquals', '$setIsSubset', '$anyElementTrue',
+  '$allElementsTrue', '$mergeObjects', '$objectToArray', '$arrayToObject', '$year', '$month',
+  '$dayOfMonth', '$hour', '$minute', '$second', '$millisecond', '$dayOfWeek', '$dayOfYear', '$week',
+  '$isoWeek', '$isoWeekYear', '$isoDayOfWeek', '$rand', '$cond', '$ifNull', '$switch', '$let',
+  '$literal', '$filter', '$map', '$reduce', '$trim', '$ltrim', '$rtrim', '$dateToString',
+  '$dateFromString', '$convert', '$regexMatch', '$regexFind', '$regexFindAll', '$getField', '$setField',
+]
+
+function convertValue(value, to) {
+  const fail = () => {
+    throw new QueryError(`Can't convert ${JSON.stringify(value)} to ${to}`)
+  }
+  switch (to) {
+    case 'string':
+      if (value instanceof Date) return value.toISOString()
+      if (typeof value === 'object') fail()
+      return String(value)
+    case 'int':
+    case 'long':
+    case 'double':
+    case 'decimal': {
+      let n
+      if (typeof value === 'number') n = value
+      else if (typeof value === 'boolean') n = value ? 1 : 0
+      else if (value instanceof Date) n = value.getTime()
+      else if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) n = Number(value)
+      else fail()
+      if (to === 'int' || to === 'long') {
+        if (typeof value === 'string' && !Number.isInteger(n)) fail()
+        return Math.trunc(n)
+      }
+      return n
+    }
+    case 'bool':
+      if (typeof value === 'number') return value !== 0
+      return Boolean(value)
+    case 'date': {
+      const d = toDate(value)
+      if (!d) fail()
+      return d
+    }
+    case 'objectId':
+      if (typeof value !== 'string' || !/^[0-9a-fA-F]{24}$/.test(value)) fail()
+      return value.toLowerCase()
+    default:
+      throw new QueryError(unknownMessage('$convert target type', String(to), ['string', 'int', 'long', 'double', 'decimal', 'bool', 'date', 'objectId'], (s) => `"${s}"`))
   }
 }
 
 function applyCond(doc, cond, vars) {
   if (Array.isArray(cond)) {
     const [ifExpr, thenExpr, elseExpr] = cond
-    return resolveExpression(doc, ifExpr, vars)
+    return isTruthy(resolveExpression(doc, ifExpr, vars))
       ? resolveExpression(doc, thenExpr, vars)
       : resolveExpression(doc, elseExpr, vars)
   }
-  return resolveExpression(doc, cond.if, vars)
+  return isTruthy(resolveExpression(doc, cond.if, vars))
     ? resolveExpression(doc, cond.then, vars)
     : resolveExpression(doc, cond.else, vars)
 }
@@ -823,12 +969,14 @@ function applyIfNull(doc, expr, vars) {
 
 function applySwitch(doc, spec, vars) {
   const { branches, default: defaultExpr } = spec
+  if (!Array.isArray(branches)) throw new QueryError('$switch needs branches: [ { case: ..., then: ... } ]')
   for (const branch of branches) {
-    if (resolveExpression(doc, branch.case, vars)) {
+    if (isTruthy(resolveExpression(doc, branch.case, vars))) {
       return resolveExpression(doc, branch.then, vars)
     }
   }
-  return defaultExpr !== undefined ? resolveExpression(doc, defaultExpr, vars) : null
+  if (defaultExpr === undefined) throw new QueryError('$switch found no matching branch and has no default')
+  return resolveExpression(doc, defaultExpr, vars)
 }
 
 function applyLet(doc, spec, vars) {
@@ -856,23 +1004,94 @@ function applyTrim(str, chars, op) {
   return s
 }
 
-function dateToString(d, format = '%Y-%m-%dT%H:%M:%S.%LZ') {
+// Milliseconds to add to a UTC instant to get wall-clock time in `tz`.
+// Accepts "UTC", Olson names like "Europe/Paris" and offsets like "+05:30".
+function timezoneOffsetMs(date, tz) {
+  if (tz == null || tz === 'UTC' || tz === 'GMT' || tz === 'Z') return 0
+  if (typeof tz !== 'string') throw new QueryError('timezone must be a string like "Europe/Paris" or "+05:30"')
+  const m = /^([+-])(\d{2}):?(\d{2})?$/.exec(tz)
+  if (m) return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0)) * 60000
+  let parts
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(date)
+  } catch {
+    throw new QueryError(`Unknown timezone "${tz}"`)
+  }
+  const get = (type) => Number(parts.find((p) => p.type === type).value)
+  const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  return wall - Math.floor(date.getTime() / 1000) * 1000
+}
+
+const pad = (n, len = 2) => String(n).padStart(len, '0')
+
+function dateToString(d, format = '%Y-%m-%dT%H:%M:%S.%LZ', timezone) {
   if (!d || isNaN(d.getTime())) return null
-  return format
-    .replace('%Y', String(d.getUTCFullYear()).padStart(4, '0'))
-    .replace('%m', String(d.getUTCMonth() + 1).padStart(2, '0'))
-    .replace('%d', String(d.getUTCDate()).padStart(2, '0'))
-    .replace('%H', String(d.getUTCHours()).padStart(2, '0'))
-    .replace('%M', String(d.getUTCMinutes()).padStart(2, '0'))
-    .replace('%S', String(d.getUTCSeconds()).padStart(2, '0'))
-    .replace('%L', String(d.getUTCMilliseconds()).padStart(3, '0'))
-    .replace('%j', String((() => { const s = new Date(Date.UTC(d.getUTCFullYear(), 0, 0)); return Math.floor((d - s) / 86400000) })()).padStart(3, '0'))
-    .replace('%u', String(d.getUTCDay() === 0 ? 7 : d.getUTCDay()))
-    .replace('%w', String(d.getUTCDay()))
-    .replace('%V', String(isoWeek(d)).padStart(2, '0'))
-    .replace('%G', String(isoWeekYear(d)))
-    .replace('%Z', 'UTC')
-    .replace('%%', '%')
+  const offset = timezoneOffsetMs(d, timezone)
+  const w = new Date(d.getTime() + offset)
+  const offsetMin = Math.round(offset / 60000)
+  const sign = offsetMin < 0 ? '-' : '+'
+  const tokens = {
+    Y: () => pad(w.getUTCFullYear(), 4),
+    m: () => pad(w.getUTCMonth() + 1),
+    d: () => pad(w.getUTCDate()),
+    H: () => pad(w.getUTCHours()),
+    M: () => pad(w.getUTCMinutes()),
+    S: () => pad(w.getUTCSeconds()),
+    L: () => pad(w.getUTCMilliseconds(), 3),
+    j: () => pad(Math.floor((w - new Date(Date.UTC(w.getUTCFullYear(), 0, 0))) / 86400000), 3),
+    u: () => String(w.getUTCDay() === 0 ? 7 : w.getUTCDay()),
+    w: () => String(w.getUTCDay() + 1),
+    V: () => pad(isoWeek(w)),
+    G: () => String(isoWeekYear(w)),
+    z: () => `${sign}${pad(Math.floor(Math.abs(offsetMin) / 60))}${pad(Math.abs(offsetMin) % 60)}`,
+    Z: () => String(offsetMin),
+    '%': () => '%',
+  }
+  return String(format).replace(/%(.)/g, (whole, t) => (tokens[t] ? tokens[t]() : whole))
+}
+
+const FORMAT_PARTS = {
+  Y: ['(\\d{4})', 'year'], m: ['(\\d{1,2})', 'month'], d: ['(\\d{1,2})', 'day'],
+  H: ['(\\d{1,2})', 'hour'], M: ['(\\d{1,2})', 'minute'], S: ['(\\d{1,2})', 'second'],
+  L: ['(\\d{1,3})', 'ms'], z: ['([+-]\\d{2}:?\\d{2})', 'offset'],
+}
+
+function dateFromString(str, format, timezone) {
+  const s = str.trim()
+  let utcMs
+  let explicitOffset = null
+  if (format !== undefined) {
+    const fields = []
+    const pattern = String(format).replace(/%(.)|[.*+?^${}()|[\]\\]/g, (whole, t) => {
+      if (t === undefined) return `\\${whole}`
+      if (t === '%') return '%'
+      if (!FORMAT_PARTS[t]) throw new QueryError(`Unsupported $dateFromString format token %${t}`)
+      fields.push(FORMAT_PARTS[t][1])
+      return FORMAT_PARTS[t][0]
+    })
+    const m = new RegExp(`^${pattern}$`).exec(s)
+    if (!m) return null
+    const v = { year: 1970, month: 1, day: 1, hour: 0, minute: 0, second: 0, ms: 0 }
+    fields.forEach((f, i) => {
+      if (f === 'offset') explicitOffset = m[i + 1]
+      else v[f] = Number(m[i + 1])
+    })
+    utcMs = Date.UTC(v.year, v.month - 1, v.day, v.hour, v.minute, v.second, v.ms)
+  } else {
+    // Strings without a zone are UTC in MongoDB (JS would treat them as local)
+    const zoned = /(Z|[+-]\d{2}:?\d{2})$/i.test(s)
+    const iso = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$/.test(s)
+    const d = new Date(iso && !zoned && s.length > 10 ? `${s.replace(' ', 'T')}Z` : s)
+    if (isNaN(d.getTime())) return null
+    if (zoned) return d
+    utcMs = d.getTime()
+  }
+  if (explicitOffset) return new Date(utcMs - timezoneOffsetMs(new Date(utcMs), explicitOffset))
+  if (timezone !== undefined) return new Date(utcMs - timezoneOffsetMs(new Date(utcMs), timezone))
+  return new Date(utcMs)
 }
 
 function toDate(v) {
@@ -907,10 +1126,13 @@ function roundNum(val) {
 function substituteVars(obj, vars) {
   if (typeof obj === 'string' && obj.startsWith('$$')) {
     const name = obj.slice(2)
-    return name in vars ? vars[name] : obj
+    // Wrapped in $literal so a substituted value like "$5" is not read as a field path
+    const [varName, ...path] = name.split('.')
+    if (!(varName in vars)) return obj
+    return { $literal: path.length ? getNestedValue(vars[varName], path.join('.')) : vars[varName] }
   }
   if (Array.isArray(obj)) return obj.map((v) => substituteVars(v, vars))
-  if (obj !== null && typeof obj === 'object') {
+  if (isPlainObject(obj)) {
     const result = {}
     for (const [k, v] of Object.entries(obj)) result[k] = substituteVars(v, vars)
     return result
@@ -919,6 +1141,7 @@ function substituteVars(obj, vars) {
 }
 
 function applyFacet(docs, spec, ctx) {
+  if (!isPlainObject(spec)) throw new QueryError('$facet needs an object of named sub-pipelines')
   const result = {}
   for (const [outputField, pipeline] of Object.entries(spec)) {
     const subCtx = { collection: { docs: structuredClone(docs) }, collections: ctx.collections }

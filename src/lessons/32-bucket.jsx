@@ -25,11 +25,12 @@ for (const b of books) {
     defaultBucket.avgRating += b.rating
   }
 }
-const expected = [...buckets, defaultBucket].map((b) => ({
+// Like MongoDB, empty buckets are not returned
+const expected = [...buckets, defaultBucket].filter((b) => b.count > 0).map((b) => ({
   _id: b._id,
   count: b.count,
   titles: b.titles,
-  avgRating: b.count > 0 ? Math.round((b.avgRating / b.count) * 1e10) / 1e10 : 0,
+  avgRating: Math.round((b.avgRating / b.count) * 1e10) / 1e10,
 }))
 
 const lesson = {

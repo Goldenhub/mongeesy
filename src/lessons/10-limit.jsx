@@ -38,6 +38,7 @@ const lesson = {
   },
 
   expectedResult: [...books].sort((a, b) => a.price - b.price).slice(0, 5),
+  orderBy: { price: 1 },
 
   hints: [
     'How do you get only the first N matching documents?',

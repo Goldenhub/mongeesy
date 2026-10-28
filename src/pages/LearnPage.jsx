@@ -3,9 +3,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import Sidebar from '../components/Sidebar.jsx'
 import MainPanel from '../components/MainPanel.jsx'
 import { useProgress } from '../hooks/useProgress.js'
-import { Database } from '../engine/query-engine.js'
-import { ParseError } from '../engine/mongosh-parser.js'
-import { compareResults } from '../utils/compare-results.js'
+import { runQuery } from '../engine/run-query.js'
+import { formatError } from '../engine/errors.js'
+import { checkAnswer } from '../utils/compare-results.js'
 import { captureLessonStarted, captureQueryRun, captureLessonCompleted, captureError, captureModuleCompleted, captureAllLessonsCompleted, captureQueryReset, captureException, capturePlaygroundOpened } from '../lib/phuglytics.js'
 import { getModuleForLesson } from '../utils/modules.js'
 import lessons from '../lessons/index.js'
@@ -31,10 +31,12 @@ export default function LearnPage() {
   const [isRunning, setIsRunning] = useState(false)
   const [yourResult, setYourResult] = useState(null)
   const [match, setMatch] = useState(null)
+  const [mismatchReason, setMismatchReason] = useState(null)
   const [error, setError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia('(max-width: 767px)').matches)
-  const dbRef = useRef(null)
+  // Playground data carries over between runs until Reset
+  const sandboxStateRef = useRef(null)
   const { lessonStates, countCompleted, updateLessonState } = useProgress()
   const isSandbox = currentLessonId === PLAYGROUND_LESSON_ID
   const [reminderSettings, setReminderSettings] = useState(() => reminderService.loadSettings())
@@ -50,10 +52,10 @@ export default function LearnPage() {
   }, [])
 
   useEffect(() => {
-    getNextLessonRef.current = () => {
-      return lessons.find((l) => !lessonStates[String(l.id)]?.completed) || null
-    }
-  }, [lessonStates, lessons])
+    const getNext = () => lessons.find((l) => !lessonStates[String(l.id)]?.completed) || null
+    getNextLessonRef.current = getNext
+    reminderService.setNextLessonHint(getNext())
+  }, [lessonStates])
 
   useEffect(() => {
     const unsub = reminderService.subscribe((lesson) => {
@@ -89,7 +91,7 @@ export default function LearnPage() {
         setYourResult(null)
         setMatch(null)
         setError(null)
-        dbRef.current = new Database(currentLesson.collections)
+        sandboxStateRef.current = null
         capturePlaygroundOpened()
       } else {
         const saved = lessonStates[String(currentLessonId)]
@@ -97,7 +99,6 @@ export default function LearnPage() {
         setYourResult(null)
         setMatch(null)
         setError(null)
-        dbRef.current = new Database(currentLesson.collections)
         captureLessonStarted(currentLesson)
       }
     }
@@ -108,6 +109,7 @@ export default function LearnPage() {
     setCurrentLessonId(id)
     setYourResult(null)
     setMatch(null)
+    setMismatchReason(null)
     setError(null)
     if (isNarrow) setSidebarOpen(false)
     navigate(id === PLAYGROUND_LESSON_ID ? '/learn/playground' : `/learn/${id}`, { replace: true })
@@ -123,85 +125,83 @@ export default function LearnPage() {
     setError(null)
   }, [])
 
-  const handleRun = useCallback(() => {
-    if (!currentLesson) return
-    dbRef.current = new Database(currentLesson.collections)
+  const handleRun = useCallback(async () => {
+    if (!currentLesson || isRunning) return
     setIsRunning(true)
     setError(null)
 
-    setTimeout(() => {
-      try {
-        const { result } = dbRef.current.execute(query)
-        const resultArray = Array.isArray(result) ? result : [result]
-        setYourResult(resultArray)
+    const seed = isSandbox && sandboxStateRef.current ? sandboxStateRef.current : currentLesson.collections
+    const outcome = await runQuery(seed, query)
 
-        if (isSandbox) {
-          setMatch(null)
-          setIsRunning(false)
-          return
-        }
+    if (!outcome.ok) {
+      const message = formatError(outcome.error)
+      captureError(currentLesson.id, message)
+      if (!outcome.error.userFacing) captureException(new Error(outcome.error.message))
+      setError(message)
+      setYourResult(null)
+      setMatch(null)
+      setMismatchReason(null)
+      setIsRunning(false)
+      return
+    }
 
-        const resultMatch = compareResults(resultArray, currentLesson.expectedResult)
-        const collectionMatch = !currentLesson.expectedCollections
-          || currentLesson.expectedCollections.every((name) => !!dbRef.current.collections[name])
-        const isMatch = resultMatch && collectionMatch
-        setMatch(isMatch)
+    const resultArray = Array.isArray(outcome.result) ? outcome.result : [outcome.result]
+    setYourResult(resultArray)
 
-        const key = String(currentLesson.id)
-        const prev = lessonStates[key]
-        const attempts = (prev?.attempts ?? 0) + 1
+    if (isSandbox) {
+      sandboxStateRef.current = outcome.state
+      setMatch(null)
+      setIsRunning(false)
+      return
+    }
 
-        captureQueryRun(currentLesson.id, isMatch, attempts)
+    const { passed: isMatch, reason } = checkAnswer(currentLesson, resultArray, outcome.state)
+    setMatch(isMatch)
+    setMismatchReason(reason)
 
-        if (isMatch) {
-          const wasAlreadyCompleted = lessonStates[key]?.completed === true
-          updateLessonState(currentLesson.id, {
-            completed: true,
-            completedAt: new Date().toISOString(),
-            lastCode: query,
-            attempts,
-          })
-          captureLessonCompleted(currentLesson.id, attempts)
+    const key = String(currentLesson.id)
+    const prev = lessonStates[key]
+    const attempts = (prev?.attempts ?? 0) + 1
 
-          if (!wasAlreadyCompleted) {
-            const moduleForLesson = getModuleForLesson(currentLesson.id, lessons.length)
-            if (moduleForLesson) {
-              const allModuleDone = Array.from(
-                { length: moduleForLesson.end - moduleForLesson.start + 1 },
-                (_, i) => i + moduleForLesson.start
-              ).every((id) => id === currentLesson.id || lessonStates[String(id)]?.completed === true)
-              if (allModuleDone) {
-                captureModuleCompleted(moduleForLesson.name, currentLesson.id)
-              }
-            }
+    captureQueryRun(currentLesson.id, isMatch, attempts)
 
-            const newCount = countCompleted + 1
-            if (newCount === lessons.length) {
-              const totalAttempts = Object.values(lessonStates).reduce((sum, s) => sum + (s.attempts || 0), 0) + attempts
-              captureAllLessonsCompleted(totalAttempts, lessons.length)
-            }
+    if (isMatch) {
+      const wasAlreadyCompleted = lessonStates[key]?.completed === true
+      updateLessonState(currentLesson.id, {
+        completed: true,
+        completedAt: new Date().toISOString(),
+        lastCode: query,
+        attempts,
+      })
+      captureLessonCompleted(currentLesson.id, attempts)
+
+      if (!wasAlreadyCompleted) {
+        const moduleForLesson = getModuleForLesson(currentLesson.id, lessons.length)
+        if (moduleForLesson) {
+          const allModuleDone = Array.from(
+            { length: moduleForLesson.end - moduleForLesson.start + 1 },
+            (_, i) => i + moduleForLesson.start
+          ).every((id) => id === currentLesson.id || lessonStates[String(id)]?.completed === true)
+          if (allModuleDone) {
+            captureModuleCompleted(moduleForLesson.name, currentLesson.id)
           }
-        } else {
-          updateLessonState(currentLesson.id, {
-            completed: false,
-            lastCode: query,
-            attempts,
-          })
         }
-      } catch (err) {
-        const message = err instanceof ParseError
-          ? err.message
-          : `Error: ${err.message ?? 'Something went wrong'}`
-        captureError(currentLesson.id, message)
-        captureException(err)
-        setError(message)
-        setYourResult(null)
-        setMatch(null)
-      } finally {
-        setIsRunning(false)
+
+        const newCount = countCompleted + 1
+        if (newCount === lessons.length) {
+          const totalAttempts = Object.values(lessonStates).reduce((sum, s) => sum + (s.attempts || 0), 0) + attempts
+          captureAllLessonsCompleted(totalAttempts, lessons.length)
+        }
       }
-    }, 100)
-  }, [query, currentLesson, lessonStates, countCompleted, updateLessonState, isSandbox])
+    } else {
+      updateLessonState(currentLesson.id, {
+        completed: prev?.completed === true,
+        lastCode: query,
+        attempts,
+      })
+    }
+    setIsRunning(false)
+  }, [query, currentLesson, isRunning, lessonStates, countCompleted, updateLessonState, isSandbox])
 
   const handleNextLesson = useCallback(() => {
     if (isSandbox) return
@@ -211,7 +211,7 @@ export default function LearnPage() {
 
   const handleReset = useCallback(() => {
     if (currentLesson) {
-      dbRef.current = new Database(currentLesson.collections)
+      sandboxStateRef.current = null
       setQuery(isSandbox ? currentLesson.defaultQuery : '')
       setYourResult(null)
       setMatch(null)
@@ -317,6 +317,7 @@ export default function LearnPage() {
             isRunning={isRunning}
             yourResult={yourResult}
             match={match}
+            mismatchReason={mismatchReason}
             error={error}
             modKey={modKey}
             onNextLesson={handleNextLesson}

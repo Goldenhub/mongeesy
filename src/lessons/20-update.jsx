@@ -48,7 +48,10 @@ const lesson = {
     books,
   },
 
-  expectedResult: [{ matchedCount: 1, modifiedCount: 1 }],
+  expectedResult: [{ acknowledged: true, insertedId: null, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 }],
+  expectedState: {
+    books: books.map((b) => (b.title === 'Moby Dick' ? { ...b, rating: 4.5 } : b)),
+  },
 
   hints: [
     'Which method updates fields in an existing document?',

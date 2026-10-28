@@ -1,19 +1,74 @@
 import { describe, it, expect } from 'vitest'
 import { Database } from '../engine/query-engine.js'
-import { compareResults } from '../utils/compare-results.js'
+import { checkAnswer } from '../utils/compare-results.js'
 import lessons from './index.js'
+
+// Grades a query exactly like LearnPage does
+function grade(lesson, query) {
+  const db = new Database(lesson.collections)
+  const { result } = db.execute(query)
+  const resultArray = Array.isArray(result) ? result : [result]
+  return { ...checkAnswer(lesson, resultArray, db.getState()), resultArray, state: db.getState() }
+}
+
+const lessonById = (id) => lessons.find((l) => l.id === id)
 
 describe('all lessons', () => {
   lessons.forEach((lesson) => {
     it(`lesson ${lesson.id}: ${lesson.title}`, () => {
-      const db = new Database(lesson.collections)
-      const { result } = db.execute(lesson.defaultQuery)
-      const resultArray = Array.isArray(result) ? result : [result]
-      const match = compareResults(resultArray, lesson.expectedResult)
-      if (!match) {
-        expect(resultArray).toEqual(lesson.expectedResult)
+      const graded = grade(lesson, lesson.defaultQuery)
+      if (!graded.passed) {
+        if (graded.reason === 'state') expect(graded.state).toEqual(lesson.expectedState)
+        expect(graded.resultArray).toEqual(lesson.expectedResult)
       }
+      expect(graded.reason).toBe(null)
     })
+  })
+})
+
+describe('grading rejects wrong answers', () => {
+  it('sort lesson rejects an unsorted find()', () => {
+    expect(grade(lessonById(9), 'db.books.find()')).toMatchObject({ passed: false, reason: 'order' })
+  })
+
+  it('sort lesson rejects the wrong direction', () => {
+    expect(grade(lessonById(9), 'db.books.find().sort({ price: -1 })').passed).toBe(false)
+  })
+
+  it('limit lesson accepts .limit().sort() because sort always runs first', () => {
+    // MongoDB applies sort before limit regardless of chain order, so this is correct
+    expect(grade(lessonById(10), 'db.books.find().limit(5).sort({ price: 1 })').passed).toBe(true)
+  })
+
+  it('update lesson rejects the wrong value', () => {
+    expect(grade(lessonById(20), 'db.books.updateOne({ title: "Moby Dick" }, { $set: { rating: 1 } })'))
+      .toMatchObject({ passed: false, reason: 'state' })
+  })
+
+  it('update lesson rejects updating the wrong document', () => {
+    expect(grade(lessonById(20), 'db.books.updateOne({ title: "1984" }, { $set: { rating: 4.5 } })').passed).toBe(false)
+  })
+
+  it('update lesson accepts updateMany on the right single document', () => {
+    expect(grade(lessonById(20), 'db.books.updateMany({ title: "Moby Dick" }, { $set: { rating: 4.5 } })').passed).toBe(true)
+  })
+
+  it('delete lesson rejects deleting an arbitrary document', () => {
+    expect(grade(lessonById(23), 'db.books.deleteOne({})')).toMatchObject({ passed: false, reason: 'state' })
+  })
+
+  it('insert lesson rejects a document with wrong values', () => {
+    const q = 'db.books.insertOne({ title: "The Hidden Language", author: "Jane Doe", genre: "technology", pages: 351, rating: 4.2, price: 27.99, copies: 3, published_year: 2025 })'
+    expect(grade(lessonById(19), q).passed).toBe(false)
+  })
+
+  it('insert lesson accepts insert followed by a find', () => {
+    const q = `${lessonById(19).defaultQuery}\ndb.books.find({ author: "Jane Doe" })`
+    expect(grade(lessonById(19), q).passed).toBe(true)
+  })
+
+  it('array update lesson rejects pushing the wrong value', () => {
+    expect(grade(lessonById(22), 'db.patrons.updateOne({ name: "Carol Williams" }, { $push: { borrowed_books: 13 } })').passed).toBe(false)
   })
 })
 
@@ -303,10 +358,16 @@ describe('sort order (order-sensitive)', () => {
     expect(r.map((p) => p.age)).toEqual([30, 25, 17])
   })
 
-  it('sort places null/missing last for ascending', () => {
+  it('sort places null/missing first for ascending, like MongoDB', () => {
     const d = db({ people: PEOPLE })
     const r = run(d, 'db.people.find().sort({ age: 1 })')
-    expect(r[r.length - 1]._id).toBe(4) // Dan has no age
+    expect(r[0]._id).toBe(4) // Dan has no age
+  })
+
+  it('sort places null/missing last for descending', () => {
+    const d = db({ people: PEOPLE })
+    const r = run(d, 'db.people.find().sort({ age: -1 })')
+    expect(r[r.length - 1]._id).toBe(4)
   })
 })
 

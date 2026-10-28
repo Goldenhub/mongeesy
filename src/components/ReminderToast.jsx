@@ -1,8 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export default function ReminderToast({ lesson, onDismiss, onOpen }) {
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  // The parent passes a new onDismiss each render; read the latest without
+  // restarting the auto-dismiss timer
+  const onDismissRef = useRef(onDismiss)
+  useEffect(() => {
+    onDismissRef.current = onDismiss
+  })
+
+  const handleDismiss = useCallback(() => {
+    setLeaving(true)
+    setTimeout(() => onDismissRef.current(), 300)
+  }, [])
 
   useEffect(() => {
     const show = setTimeout(() => setVisible(true), 300)
@@ -11,14 +22,9 @@ export default function ReminderToast({ lesson, onDismiss, onOpen }) {
 
   useEffect(() => {
     if (!visible) return
-    const auto = setTimeout(() => handleDismiss(), 15000)
+    const auto = setTimeout(handleDismiss, 15000)
     return () => clearTimeout(auto)
-  }, [visible])
-
-  function handleDismiss() {
-    setLeaving(true)
-    setTimeout(onDismiss, 300)
-  }
+  }, [visible, handleDismiss])
 
   if (!lesson) return null
 

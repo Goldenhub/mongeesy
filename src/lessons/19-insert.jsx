@@ -26,7 +26,9 @@ const lesson = {
       </pre>
       <p>
         MongoDB automatically generates an <code>_id</code> field if you don't provide one.
-        The inserted document (with its new <code>_id</code>) is returned.
+        The result is an acknowledgement like <code>{'{ acknowledged: true, insertedId: 11 }'}</code> that
+        tells you the new <code>_id</code>. (In real MongoDB the generated <code>_id</code> is an ObjectId;
+        this sandbox uses the next number so results stay readable.)
       </p>
       <p>
         To insert several documents at once, pass an array to <code>insertMany()</code>:
@@ -48,7 +50,9 @@ const lesson = {
     books,
   },
 
-  expectedResult: [{ _id: 11, title: "The Hidden Language", author: "Jane Doe", genre: "technology", pages: 350, rating: 4.2, price: 27.99, copies: 3, published_year: 2025 }],
+  expectedState: {
+    books: [...books, { _id: 11, title: "The Hidden Language", author: "Jane Doe", genre: "technology", pages: 350, rating: 4.2, price: 27.99, copies: 3, published_year: 2025 }],
+  },
 
   hints: [
     'Which method adds a new document to a collection?',

@@ -45,14 +45,16 @@ Open the local URL shown in the terminal (usually `http://localhost:5173`).
 
 ### Environment Variables
 
-| Variable                   | Required | Default                    | Description                           |
-| -------------------------- | -------- | -------------------------- | ------------------------------------- |
-| `VITE_PUBLIC_POSTHOG_KEY`  | No       | -                          | PostHog project API key for analytics |
-| `VITE_PUBLIC_POSTHOG_HOST` | No       | `https://us.i.posthog.com` | PostHog instance host                 |
+| Variable                   | Required | Default                    | Description                                                         |
+| -------------------------- | -------- | -------------------------- | ------------------------------------------------------------------- |
+| `VITE_PUBLIC_POSTHOG_KEY`  | No       | -                          | PostHog project API key for analytics                               |
+| `VITE_PUBLIC_POSTHOG_HOST` | No       | `https://eu.i.posthog.com` | PostHog region host. Only used for toolbar / replay links (see below) |
 
 Analytics is a no-op when the key is not set, so you can develop without it.
 
-> **Note:** `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` (without `PUBLIC_`) are also accepted for compatibility.
+Events are always sent to the same-origin `/tt` path, which is a reverse proxy to PostHog's EU region (`vercel.json` in production, `server.proxy` in `vite.config.js` for `npm run dev` / `npm run preview`). This keeps ad blockers from dropping events and works on any deployment URL. To use the US region, change the three proxy targets in both files.
+
+> **Note:** `VITE_PUBLIC_POSTHOG_TOKEN`, `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST` are also accepted for compatibility.
 
 ## PWA
 
@@ -61,7 +63,7 @@ Mongeesy is a fully offline-capable Progressive Web App.
 - **Service worker** (`src/sw.js`) — Built with Workbox via `vite-plugin-pwa` using `injectManifest` strategy. Precaches all JS, CSS, HTML, and assets on first visit.
 - **Install prompt** (`src/components/PwaInstallBanner.jsx`) — Detects `beforeinstallprompt` (Chrome) or iOS for "Add to Home Screen" instructions. Shown on first visit and dismissible; hidden once installed.
 - **Notifications** (`src/lib/reminderService.js`) — Tab-open timer fires system notifications (`new Notification()`) and in-app popups at a configurable interval. On Chromium, Periodic Background Sync fires notifications when the app is closed. Firefox/Safari catch up on return. Requires notification permission.
-- **Notification click** — Clicking a system notification navigates to the suggested lesson via `client.navigate()` in the service worker.
+- **Notification click** — Clicking a system notification navigates to the suggested lesson via `client.navigate()` in the service worker. Background (Periodic Sync) notifications also name the next unfinished lesson: the page stores it in the `mongeesy-meta` cache, which `src/sw.js` reads.
 - **Offline analytics** (`src/lib/phuglytics.js`) — PostHog events queue to `localStorage` when offline and flush on `online` event or next page load. Capped at 500 events.
 
 > **Note:** Service worker is only active in production builds. Use `npm run build && npm run preview` to test PWA features locally.
@@ -83,12 +85,17 @@ src/
 ├── components/       # React components (Sidebar, MainPanel, QueryEditor, ReminderSettings, ReminderToast, PwaInstallBanner, etc.)
 ├── data/             # Sample MongoDB collections (books, products, authors, etc.)
 ├── engine/           # Custom MongoDB query engine
-│   ├── query-engine.js     # Database class - high-level operations
-│   ├── pipeline-engine.js  # Aggregation pipeline executor
-│   ├── mongosh-parser.js   # MongoDB shell syntax parser
-│   ├── operators.js        # Query and expression operators
+│   ├── query-engine.js     # Database class - statements, cursor chains, db methods
+│   ├── pipeline-engine.js  # Aggregation pipeline executor and expression evaluator
+│   ├── mongosh-parser.js   # Safe mongosh syntax parser (no eval)
+│   ├── operators.js        # Query filter operators
 │   ├── collection.js       # Collection class with CRUD operations
-│   └── utils.js            # Shared engine utilities (deepEqual, compareValues)
+│   ├── errors.js           # User-facing error types and "did you mean" suggestions
+│   ├── run-query.js        # Runs queries in a Web Worker with a timeout
+│   ├── query-worker.js     # The worker entry point
+│   ├── execute-query.js    # Shared run-and-report helper (worker + tests)
+│   ├── engine.test.js      # Engine unit tests
+│   └── utils.js            # Shared helpers (deepEqual, BSON compareValues, path lookup)
 ├── hooks/            # Custom React hooks (useProgress)
 ├── lib/              # Shared utilities
 │   ├── phuglytics.js       # PostHog analytics wrapper with offline queue
@@ -107,15 +114,26 @@ src/
 2. **Write the query** - Type the MongoDB query from scratch in the Monaco editor.
 3. **Run and compare** - Press `Cmd+Enter` (or `Ctrl+Enter`) to execute. See your result next to the expected output.
 
-The query engine parses MongoDB shell syntax, executes against in-memory collections, and compares results using deep equality. All data is pre-loaded sample datasets - no network requests needed.
+The query engine parses MongoDB shell syntax, executes against in-memory collections in a Web Worker, and grades the attempt (see [Grading](#grading)). All data is pre-loaded sample datasets - no network requests needed.
+
+You can run several statements at once (separated by newlines or `;`); the last statement's result is shown. In the playground, data changes are kept between runs until you press Reset.
+
+### Grading
+
+`checkAnswer()` in `src/utils/compare-results.js` grades an attempt using the lesson's fields:
+
+- `expectedResult` - the returned documents must match, in any order. Nested objects compare regardless of key order.
+- `orderBy` - for sort lessons, the result must also be sorted this way (ties may be in any order).
+- `expectedState` - for write lessons, each listed collection must contain exactly these documents afterwards, so updating the wrong document or setting the wrong value fails.
+- `expectedCollections` - collections that must exist afterwards.
 
 ## Architecture
 
-The custom MongoDB query engine is split into six modules in `src/engine/`, each with a single responsibility:
+The custom MongoDB query engine lives in `src/engine/`. Queries run in a module Web Worker (`run-query.js`) with a 3-second timeout, so a runaway query (for example a catastrophic regex) is stopped instead of freezing the tab. Without `Worker` support (e.g. in tests) it runs inline.
 
 ### `mongosh-parser.js`
 
-Tokenizes MongoDB shell syntax (`db.books.find({ ... }).sort({ ... })`) into structured command objects. Handles nested parentheses, string literals, regex patterns, and chained methods. Uses `new Function` to evaluate raw JS argument strings into real objects.
+A recursive-descent parser for MongoDB shell syntax (`db.books.find({ ... }).sort({ ... })`). It never evaluates JavaScript: arguments may only be literals - objects (quoted or unquoted keys), arrays, strings, numbers, booleans, `null`, regex literals, comments - plus the shell helpers `new Date()` / `ISODate()`, `new RegExp()`, `ObjectId("...")` (kept as a hex string) and `NumberInt()` / `NumberLong()` / `NumberDecimal()`. Errors point at the exact line and column. Also supports `db.getCollection("name")` and several statements in one input.
 
 ### `operators.js`
 
@@ -124,16 +142,16 @@ Evaluates query filters against documents. Supports all major operators:
 - **Comparison:** `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`
 - **Array:** `$in`, `$nin`, `$all`, `$size`, `$elemMatch`
 - **Element:** `$exists`, `$type`
-- **Evaluation:** `$regex` (with `$options`), `$mod`, `$where`, `$expr`
+- **Evaluation:** `$regex` (with `$options`), `$mod`, `$expr` (full aggregation expression support), `$comment`
 - **Logical:** `$and`, `$or`, `$nor`, `$not` (field-level)
 
-`{ field: null }` matches both explicit `null` and missing fields, matching real MongoDB semantics. Resolves dotted field paths like `address.city`.
+Follows MongoDB semantics: `{ tags: "a" }` matches arrays containing `"a"`, dotted paths walk into arrays (`{ "items.name": "x" }`), `{ field: null }` matches `null` and missing fields, and comparisons only match values of the same BSON type. `$where` is rejected because it would run arbitrary JavaScript. Unknown operators raise an error with a "did you mean" suggestion.
 
 ### `collection.js`
 
-In-memory document array with CRUD methods: `find`, `insertOne`, `updateMany`, `deleteOne`, `distinct`, `aggregate`. Applies projections (including dotted-path inclusion/exclusion), and update operators:
+In-memory document array with `find`, `findOne`, `insertOne`, `insertMany`, `updateOne`, `updateMany`, `replaceOne`, `deleteOne`, `deleteMany`, `findOneAndUpdate`, `findOneAndReplace`, `findOneAndDelete`, `countDocuments`, `estimatedDocumentCount`, `distinct` and `aggregate`. Write methods return mongosh-shaped acknowledgements (`{ acknowledged, insertedId, matchedCount, modifiedCount, upsertedCount }`), `modifiedCount` only counts documents that actually changed, and `upsert: true` is supported. Generated `_id`s are the next number while a collection's ids are numeric (to keep sample data readable), otherwise an ObjectId-style hex string; duplicate `_id`s are rejected. Update operators:
 
-- **Field:** `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$currentDate`, `$rename`
+- **Field:** `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$currentDate`, `$rename`, `$setOnInsert`
 - **Array:** `$push` (with `$each`/`$position`/`$slice`/`$sort` modifiers), `$pop`, `$pull`, `$pullAll`, `$addToSet`
 - **Bitwise:** `$bit`
 
@@ -148,23 +166,25 @@ Aggregation pipeline executor. Stages are applied sequentially against cloned do
 | `$addFields` / `$set`           | Add computed fields                                                                                                                   |
 | `$unset`                        | Remove fields                                                                                                                         |
 | `$group`                        | Group and accumulate (`$sum`, `$avg`, `$min`, `$max`, `$push`, `$addToSet`, `$first`, `$last`, `$count`, `$stdDevPop`, `$stdDevSamp`) |
-| `$sort`                         | Order documents (null/missing sort last for ascending)                                                                                |
+| `$sort`                         | Order documents by BSON order (null/missing first for ascending, like MongoDB)                                                         |
 | `$limit` / `$skip`              | Pagination                                                                                                                            |
 | `$count`                        | Count documents into a named field                                                                                                    |
 | `$unwind`                       | Flatten arrays (supports `preserveNullAndEmptyArrays`, `includeArrayIndex`)                                                           |
 | `$lookup`                       | Join collections - equality form and pipeline form (with `let`/`$$vars`)                                                              |
 | `$replaceRoot` / `$replaceWith` | Replace each document with an expression                                                                                              |
-| `$bucket`                       | Range-based bucketing                                                                                                                 |
+| `$bucket`                       | Range-based bucketing (only non-empty buckets are returned, like MongoDB)                                                             |
 | `$facet`                        | Multiple parallel sub-pipelines                                                                                                       |
 | `$sample`                       | Random document sample                                                                                                                |
+| `$sortByCount`                  | Group by an expression and sort by count                                                                                              |
 
 Expression operators available in `$addFields`, `$project`, `$group`, etc.:
 
 - **Arithmetic:** `$add`, `$subtract`, `$multiply`, `$divide`, `$mod`, `$abs`, `$ceil`, `$floor`, `$round`, `$sqrt`, `$pow`, `$log`, `$ln`, `$log10`, `$trunc`, `$exp`
 - **String:** `$concat`, `$split`, `$toLower`, `$toUpper`, `$trim`, `$ltrim`, `$rtrim`, `$substr`, `$substrCP`, `$strLenCP`, `$indexOfCP`, `$regexMatch`, `$regexFind`, `$regexFindAll`
 - **Array:** `$arrayElemAt`, `$concatArrays`, `$filter`, `$map`, `$reduce`, `$size`, `$slice`, `$reverseArray`, `$in`, `$indexOfArray`, `$isArray`, `$range`, `$first`, `$last`, `$zip`
-- **Date:** `$year`, `$month`, `$dayOfMonth`, `$hour`, `$minute`, `$second`, `$millisecond`, `$dayOfWeek`, `$dayOfYear`, `$week`, `$isoWeek`, `$isoWeekYear`, `$isoDayOfWeek`, `$dateToString`, `$dateFromString`, `$toDate`
-- **Type:** `$type`, `$isArray`, `$isNumber`, `$toString`, `$toInt`, `$toLong`, `$toDouble`, `$toBool`
+- **Date:** `$year`, `$month`, `$dayOfMonth`, `$hour`, `$minute`, `$second`, `$millisecond`, `$dayOfWeek`, `$dayOfYear`, `$week`, `$isoWeek`, `$isoWeekYear`, `$isoDayOfWeek`, `$dateToString` (with `timezone`), `$dateFromString` (with `format` / `timezone`), `$toDate`
+- **Type:** `$type`, `$isArray`, `$isNumber`, `$toString`, `$toInt`, `$toLong`, `$toDouble`, `$toBool`, `$convert`
+- **Variables:** `$$ROOT`, `$$CURRENT`, `$$NOW`, `$$REMOVE`, plus `$let` / `$filter` / `$map` / `$lookup` variables
 - **Set:** `$setUnion`, `$setIntersection`, `$setDifference`, `$setEquals`, `$setIsSubset`
 - **Object:** `$mergeObjects`, `$objectToArray`, `$arrayToObject`, `$getField`, `$setField`
 - **Conditional:** `$cond`, `$ifNull`, `$switch`
@@ -172,25 +192,24 @@ Expression operators available in `$addFields`, `$project`, `$group`, etc.:
 
 ### `utils.js`
 
-Shared engine utilities: `deepEqual` (key-order-insensitive structural equality used for `$addToSet`, `$pull`, `$all`, set operators) and `compareValues` (MongoDB-style sort comparator that places `null`/missing last).
+Shared engine helpers: `deepEqual` (key-order-insensitive structural equality), `compareValues` (BSON-order comparator: null/missing < numbers < strings < objects < arrays < booleans < dates < regexes), `canonicalKey` (stable keys for grouping and result comparison), and the path helpers `getNestedValue` / `setNestedValue` / `unsetNestedValue` / `getPathValues`.
 
 ### `query-engine.js`
 
 Top-level `Database` class. On `execute(query)`:
 
-1. Parses the query string via `mongosh-parser.js`
-2. Evaluates arguments to real JS values
-3. Dispatches to the right `Collection` method
-4. Applies chained cursor methods (`.sort()`, `.limit()`, `.skip()`, `.count()`)
-5. Returns `{ result, collection, method }`
+1. Parses the input into statements via `mongosh-parser.js`
+2. Runs each statement in order, dispatching to the right `Collection` method
+3. Applies cursor methods the way MongoDB does - always sort, then skip, then limit, whatever order they're chained in (`.sort()`, `.skip()`, `.limit()`, `.count()`, `.size()`, `.itcount()`, `.toArray()`, `.pretty()`). Unknown methods are errors, not silently ignored.
+4. Returns the last statement's `{ result, collection, method }`
 
-Also handles `db.createCollection()` and implicit collection creation on `insertOne`/`insertMany`.
+Also handles `db.createCollection()`, `db.getCollectionNames()`, `db.dropDatabase()`, `drop()`, and implicit collection creation on the first write. `getState()` returns every collection's documents, which grading uses to check write lessons.
 
 All data lives in memory - no network, no server. Documents are deep-cloned to prevent mutation. The `$lookup` stage references other collections via a shared collections map.
 
 ## Analytics
 
-PostHog analytics is built in but disabled by default. Set `VITE_PUBLIC_POSTHOG_KEY` in `.env` to enable.
+PostHog analytics is built in but disabled by default. Set `VITE_PUBLIC_POSTHOG_KEY` in `.env` to enable (see [Environment Variables](#environment-variables)).
 
 The following events are tracked when analytics is active:
 
@@ -283,6 +302,8 @@ const lesson = {
   collections: { books },            // collection name → data mapping
 
   expectedResult: [{ ... }],         // array of documents the correct query returns
+  // orderBy: { price: 1 },          // for sort lessons: result must be in this order
+  // expectedState: { books: [...] }, // for write lessons: data after the query
 
   hints: [                           // progressive hints, shown one at a time
     'First hint - vague pointer',
@@ -313,7 +334,9 @@ export default lesson
 | `task`                | yes      | What the user needs to do.                                                                                                                                                                            |
 | `defaultQuery`        | yes      | The query string that passes the lesson. Used by tests.                                                                                                                                               |
 | `collections`         | yes      | Object mapping collection names to their data arrays.                                                                                                                                                 |
-| `expectedResult`      | yes      | Array of documents the correct query produces.                                                                                                                                                        |
+| `expectedResult`      | yes*     | Array of documents the correct query produces (any order). *Optional when `expectedState` is set.                                                                                                     |
+| `orderBy`             | no       | Sort spec the result must follow, e.g. `{ price: 1 }`. Use for lessons that teach sorting.                                                                                                            |
+| `expectedState`       | no       | `{ collectionName: docs[] }` the data must equal after the query runs. Use for every write lesson so wrong updates or deletes fail.                                                                  |
 | `expectedCollections` | no       | Array of collection names that must exist in the database after the query runs. Use this when the correct answer is verified by side-effect (e.g. `createCollection`) rather than return value alone. |
 | `hints`               | no       | Array of progressive hint strings.                                                                                                                                                                    |
 | `howItWorks`          | no       | JSX - expandable "How it works" box.                                                                                                                                                                  |
@@ -328,17 +351,17 @@ export default lesson
 npm run test
 ```
 
-The test suite lives in `src/lessons/lessons.test.js` and has two sections:
+Tests live in two files:
 
-**Lesson smoke tests** - one test per lesson (35 total). For each lesson:
+**`src/lessons/lessons.test.js`**
 
-1. Creates a fresh in-memory database with the lesson's collections.
-2. Executes the lesson's `defaultQuery`.
-3. Compares the result against `expectedResult` using order-insensitive deep equality.
+- *Lesson smoke tests* - one test per lesson. Each runs the lesson's `defaultQuery` on a fresh database and grades it with `checkAnswer()`, exactly like the app does.
+- *Grading tests* - known-wrong answers (unsorted results, wrong update values, deleting the wrong document) must fail.
+- *Engine edge-case tests* - null semantics, `$unwind` edge cases, update modifiers, expression operators, `$lookup` pipeline form.
 
-**Engine edge-case tests** - targeted unit tests for specific operator behaviors including null semantics, sort stability, `$unwind` edge cases, update modifiers, expression operators, and `$lookup` pipeline form.
+**`src/engine/engine.test.js`** - parser safety and error messages, array / dot-path matching, BSON ordering, cursor chain order, write results, upserts, accumulators, `$lookup` / `$bucket` semantics and date operators.
 
-When adding a new lesson, write the `defaultQuery` and `expectedResult` first, then run `npm run test` to confirm they match before building the UI content.
+When adding a new lesson, write the `defaultQuery` and `expectedResult` / `expectedState` first, then run `npm run test` to confirm they match before building the UI content. CI (`.github/workflows/ci.yml`) runs lint, tests and a production build on every push and pull request.
 
 ## License
 

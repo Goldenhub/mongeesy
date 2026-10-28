@@ -47,7 +47,10 @@ const lesson = {
     patrons,
   },
 
-  expectedResult: [{ matchedCount: 1, modifiedCount: 1 }],
+  expectedResult: [{ acknowledged: true, insertedId: null, matchedCount: 1, modifiedCount: 1, upsertedCount: 0 }],
+  expectedState: {
+    patrons: patrons.map((p) => (p.name === 'Carol Williams' ? { ...p, borrowed_books: [...p.borrowed_books, 12] } : p)),
+  },
 
   hints: [
     'Which operator adds an element to an array field?',

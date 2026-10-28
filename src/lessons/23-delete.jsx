@@ -38,7 +38,10 @@ const lesson = {
     books,
   },
 
-  expectedResult: [{ deletedCount: 1 }],
+  expectedResult: [{ acknowledged: true, deletedCount: 1 }],
+  expectedState: {
+    books: books.filter((b) => b.title !== 'The Pragmatic Programmer'),
+  },
 
   hints: [
     'Which method removes a document from a collection?',

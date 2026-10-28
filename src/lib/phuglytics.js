@@ -1,6 +1,13 @@
 import posthog from 'posthog-js'
 
-const KEY = import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN
+const env = import.meta.env
+const KEY = env.VITE_PUBLIC_POSTHOG_KEY || env.VITE_PUBLIC_POSTHOG_TOKEN || env.VITE_POSTHOG_KEY
+// Events go through the same-origin /tt reverse proxy (vercel.json in
+// production, vite.config.js in dev) so ad blockers don't drop them. The
+// host variable names the PostHog region (e.g. https://eu.i.posthog.com) and
+// is turned into the app URL used for toolbar and replay links.
+const UI_HOST = (env.VITE_PUBLIC_POSTHOG_HOST || env.VITE_POSTHOG_HOST || 'https://eu.i.posthog.com')
+  .replace('.i.posthog.com', '.posthog.com')
 const ENABLED = !!KEY
 const OFFLINE_QUEUE_KEY = 'mongeesy-analytics-queue'
 const MAX_QUEUE = 500
@@ -8,7 +15,8 @@ const MAX_QUEUE = 500
 export function initAnalytics() {
   if (!ENABLED) return
   posthog.init(KEY, {
-    api_host: 'https://mongeesy.vercel.app/tt',
+    api_host: `${window.location.origin}/tt`,
+    ui_host: UI_HOST,
     capture_pageview: false,
     persistence: 'localStorage',
   })

@@ -45,6 +45,7 @@ const lesson = {
   },
 
   expectedResult: expected,
+  orderBy: { rating: -1 },
 
   hints: [
     'How do you get only the top results after sorting in an aggregation?',

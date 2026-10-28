@@ -34,6 +34,10 @@ export const playgroundLesson = {
         Tip: try <code>db.books.find()</code>, <code>db.products.find()</code>,
         or <code>db.authors.findOne()</code> to get started.
       </p>
+      <p className="text-xs text-slate-400 mt-1">
+        Changes you make (inserts, updates, deletes) are kept between runs until you press Reset.
+        You can also run several statements at once, one per line.
+      </p>
     </>
   ),
   defaultQuery: 'db.books.find()',
