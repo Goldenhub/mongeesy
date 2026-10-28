@@ -513,13 +513,15 @@ export default function LandingPage() {
       </section>
 
       <footer className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/80">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-1 py-3 sm:h-14">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-1 py-3 sm:min-h-14">
           <span className="text-xs text-slate-400 dark:text-slate-500">Mongeesy - a free, in-browser MongoDB playground</span>
-          <span className="text-xs text-slate-40 text-center">
+          <span className="text-xs text-slate-400 dark:text-slate-500 text-center">
             Created by <a href="https://github.com/goldenhub" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">goldenhub</a>
             {' '}&bull;{' '}
             <a href="https://linkedin.com/in/goldenazubuike" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">LinkedIn</a>
-            {' '}&bull;{' '}Not affiliated with MongoDB Inc.
+            {' '}&bull;{' '}
+            <a href="https://github.com/Goldenhub/mongeesy" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">Open source (MIT)</a>
+            {' '}&bull;{' '}Not affiliated with MongoDB, Inc.
           </span>
         </div>
       </footer>

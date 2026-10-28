@@ -2,6 +2,10 @@
 
 An interactive, in-browser MongoDB playground. Write real MongoDB queries against real data and get instant feedback - no setup, no signup, no cloud.
 
+Mongeesy is free and open source under the [MIT License](LICENSE). It is an independent project, not affiliated with MongoDB, Inc.
+
+[![Fund my work on FLOSSAfrica](https://flossafrica.com/badge.svg)](https://flossafrica.com/m/goldenhub?p=mongeesy)
+
 ## Features
 
 - **Real MongoDB queries** - Type real `find()`, `aggregate()`, `sort()`, `group()`, `lookup()` syntax. A custom query engine runs it all in your browser.
@@ -408,6 +412,12 @@ Tests live in two files:
 
 When adding a new lesson, write the `defaultQuery` and `expectedResult` / `expectedState` first, then run `npm run test` to confirm they match before building the UI content. CI (`.github/workflows/ci.yml`) runs lint, tests and a production build on every push and pull request.
 
+## Contributing
+
+Contributions are welcome: bug reports, new lessons, engine fixes and docs. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines. Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Azubuike Golden
+
+Mongeesy is an independent open source project. It is not affiliated with, endorsed by, or sponsored by MongoDB, Inc. MongoDB is a trademark of MongoDB, Inc.

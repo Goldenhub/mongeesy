@@ -1,0 +1,61 @@
+{
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "Azubuike Golden",
+    "email": "goldenazubuike@gmail.com",
+    "description": "Software developer and creator and maintainer of Mongeesy, a free and open source interactive MongoDB tutorial that runs entirely in the browser.",
+    "webpageUrl": {
+      "url": "https://github.com/Goldenhub"
+    }
+  },
+  "projects": [
+    {
+      "guid": "mongeesy",
+      "name": "Mongeesy",
+      "description": "A free, open source, in-browser MongoDB tutorial and playground. Learners write real MongoDB shell queries against sample data and get instant feedback across 35 progressive lessons, with no installation, account or server. A custom query engine runs entirely in the browser, and the app works offline as an installable PWA, which makes it usable in classrooms and places with unreliable internet.",
+      "webpageUrl": {
+        "url": "https://mongeesy.vercel.app",
+        "wellKnown": "https://mongeesy.vercel.app/.well-known/funding-manifest-urls"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/Goldenhub/mongeesy"
+      },
+      "licenses": ["spdx:MIT"],
+      "tags": ["education", "database", "programming", "developer-tools", "web-development"]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "flossafrica",
+        "type": "payment-provider",
+        "address": "https://flossafrica.com/projects/Goldenhub/mongeesy",
+        "description": "Give through FLOSSAfrica in USD or NGN. Gifts go to the maintainer; FLOSSAfrica adds a 5% fee on top, paid by the giver."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "one-time-usd",
+        "status": "active",
+        "name": "One-time gift (USD)",
+        "description": "Any amount, given once, to support Mongeesy's development, new lessons and hosting.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": ["flossafrica"]
+      },
+      {
+        "guid": "one-time-ngn",
+        "status": "active",
+        "name": "One-time gift (NGN)",
+        "description": "Any amount, given once, to support Mongeesy's development, new lessons and hosting.",
+        "amount": 0,
+        "currency": "NGN",
+        "frequency": "one-time",
+        "channels": ["flossafrica"]
+      }
+    ]
+  }
+}

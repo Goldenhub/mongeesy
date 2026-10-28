@@ -103,6 +103,7 @@ export default function Sidebar({ lessons, currentLessonId, lessonStates, onSele
       </nav>
       <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-400 dark:text-slate-500 text-center">
         by <a href="https://github.com/goldenhub" target="_blank" rel="noopener noreferrer" className="text-[#47A248] underline hover:brightness-75">goldenhub</a>
+        <div className="mt-0.5">Not affiliated with MongoDB, Inc.</div>
       </div>
     </aside>
   )

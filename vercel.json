@@ -1,4 +1,12 @@
 {
+  "headers": [
+    {
+      "source": "/.well-known/funding-manifest-urls",
+      "headers": [
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/tt/static/:path(.*)",

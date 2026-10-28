@@ -7,9 +7,10 @@ cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
 
 // Every app route (/learn/20, /learn/playground...) is the same SPA shell, so
-// deep links and reloads work offline. /tt is the analytics proxy.
+// deep links and reloads work offline. /tt is the analytics proxy, and
+// /.well-known holds plain files (e.g. the funding manifest list).
 registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), {
-  denylist: [/^\/tt\//],
+  denylist: [/^\/tt\//, /^\/\.well-known\//],
 }))
 
 // A new version waits until the user accepts the "update available" prompt
