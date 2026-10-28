@@ -21,9 +21,11 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.js',
-      registerType: 'autoUpdate',
+      // The app shows an "update available" prompt (UpdateToast) and registers
+      // the service worker itself, instead of swapping versions under an open page
+      registerType: 'prompt',
+      injectRegister: false,
       devOptions: { enabled: false },
-      includeAssets: ['favicon.svg', 'pwa-icon.svg'],
       manifest: {
         name: 'Mongeesy - Learn MongoDB in your browser',
         short_name: 'Mongeesy',
@@ -39,8 +41,11 @@ export default defineConfig({
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,ttf,webmanifest}'],
+        // Monaco's chunks are bigger than Workbox's 2 MB default and would
+        // otherwise be skipped, leaving the editor broken offline
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
   ],

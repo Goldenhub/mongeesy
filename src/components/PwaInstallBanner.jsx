@@ -1,12 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 
 const STORAGE_KEY = 'mongeesy-pwa-banner-dismissed'
 
+// Captured at module load so an early event isn't missed. It often fires
+// after the first render, so mounted banners are told to re-render.
 let deferredPrompt = null
+let installed = false
+const listeners = new Set()
+const emit = () => listeners.forEach((fn) => fn())
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault()
   deferredPrompt = e
-}, { once: true })
+  emit()
+})
+
+window.addEventListener('appinstalled', () => {
+  installed = true
+  deferredPrompt = null
+  emit()
+})
 
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream
@@ -20,9 +33,21 @@ function isStandalone() {
 }
 
 export default function PwaInstallBanner() {
-  const [dismissed, setDismissed] = useState(() => !!localStorage.getItem(STORAGE_KEY))
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return !!localStorage.getItem(STORAGE_KEY)
+    } catch {
+      return false
+    }
+  })
+  const [, rerender] = useReducer((n) => n + 1, 0)
 
-  const canInstall = !dismissed && !isStandalone() && (isIOS() || !!deferredPrompt)
+  useEffect(() => {
+    listeners.add(rerender)
+    return () => listeners.delete(rerender)
+  }, [])
+
+  const canInstall = !dismissed && !installed && !isStandalone() && (isIOS() || !!deferredPrompt)
 
   if (!canInstall) return null
 

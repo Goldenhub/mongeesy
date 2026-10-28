@@ -1,11 +1,21 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import confetti from 'canvas-confetti'
-import QueryEditor from './QueryEditor.jsx'
 import ResultsPane from './ResultsPane.jsx'
 import SchemaViewer from './SchemaViewer.jsx'
 import { HowItWorks, RealWorldUse, CommonMistakes, SyntaxBreakdown, DataFlow } from './ConceptBox.jsx'
 import { getModuleForLesson, getShortModuleName } from '../utils/modules.js'
 import { captureHintViewed, captureCollectionsPanelOpened } from '../lib/phuglytics.js'
+
+// Monaco is large; load it only when a lesson is opened, not on the landing page
+const QueryEditor = lazy(() => import('./QueryEditor.jsx'))
+
+function EditorFallback() {
+  return (
+    <div className="border border-slate-300 dark:border-slate-600 rounded-lg h-[262px] flex items-center justify-center text-sm text-slate-400">
+      Loading editor…
+    </div>
+  )
+}
 
 const MISMATCH_MESSAGES = {
   result: "Your result doesn't match the expected output. Check your query and try again.",
@@ -140,14 +150,16 @@ export default function MainPanel({
               </div>
             )}
 
-            <QueryEditor
-              value={query}
-              onChange={onQueryChange}
-              onRun={onRun}
-              onReset={onReset}
-              isRunning={isRunning}
-              modKey={modKey}
-            />
+            <Suspense fallback={<EditorFallback />}>
+              <QueryEditor
+                value={query}
+                onChange={onQueryChange}
+                onRun={onRun}
+                onReset={onReset}
+                isRunning={isRunning}
+                modKey={modKey}
+              />
+            </Suspense>
 
             {error && (
               <div className="px-4 py-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
@@ -290,14 +302,16 @@ export default function MainPanel({
               </div>
             )}
 
-            <QueryEditor
-              value={query}
-              onChange={onQueryChange}
-              onRun={onRun}
-              onReset={onReset}
-              isRunning={isRunning}
-              modKey={modKey}
-            />
+            <Suspense fallback={<EditorFallback />}>
+              <QueryEditor
+                value={query}
+                onChange={onQueryChange}
+                onRun={onRun}
+                onReset={onReset}
+                isRunning={isRunning}
+                modKey={modKey}
+              />
+            </Suspense>
 
             {error && (
               <div className="px-4 py-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">

@@ -14,6 +14,7 @@ import ThemeToggle from '../components/ThemeToggle.jsx'
 import ReminderSettings from '../components/ReminderSettings.jsx'
 import ReminderToast from '../components/ReminderToast.jsx'
 import * as reminderService from '../lib/reminderService.js'
+import { subscribe as subscribeStorage } from '../lib/db.js'
 
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
 const modKey = isMac ? '\u2318' : 'Ctrl'
@@ -37,7 +38,7 @@ export default function LearnPage() {
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia('(max-width: 767px)').matches)
   // Playground data carries over between runs until Reset
   const sandboxStateRef = useRef(null)
-  const { lessonStates, countCompleted, updateLessonState } = useProgress()
+  const { lessonStates, countCompleted, updateLessonState, ready: progressReady } = useProgress()
   const isSandbox = currentLessonId === PLAYGROUND_LESSON_ID
   const [reminderSettings, setReminderSettings] = useState(() => reminderService.loadSettings())
   const [reminderToastLesson, setReminderToastLesson] = useState(null)
@@ -57,6 +58,16 @@ export default function LearnPage() {
     reminderService.setNextLessonHint(getNext())
   }, [lessonStates])
 
+  // Settings are stored in IndexedDB; the first render uses a synchronous copy.
+  // Other tabs announce changes so every tab's timer uses the same settings.
+  useEffect(() => {
+    const reload = () => reminderService.loadSettingsAsync().then(setReminderSettings).catch(() => {})
+    reload()
+    return subscribeStorage((msg) => {
+      if (msg?.type === 'settings') reload()
+    })
+  }, [])
+
   useEffect(() => {
     const unsub = reminderService.subscribe((lesson) => {
       setReminderToastLesson(lesson)
@@ -68,18 +79,14 @@ export default function LearnPage() {
     }
   }, [reminderSettings])
 
+  // Follow the URL when something else changes it, e.g. a notification click
+  // (NotificationNavigator in App.jsx) or the browser's back button
   useEffect(() => {
-    function handleSwMessage(event) {
-      if (event.data?.type === 'NAVIGATE_LESSON' && event.data.lessonId != null) {
-        setCurrentLessonId(event.data.lessonId)
-        navigate(`/learn/${event.data.lessonId}`, { replace: true })
-      }
-    }
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleSwMessage)
-      return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage)
-    }
-  }, [navigate])
+    if (lessonIdParam === undefined) return
+    const id = lessonIdParam === 'playground' ? PLAYGROUND_LESSON_ID : Number(lessonIdParam)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!Number.isNaN(id)) setCurrentLessonId(id)
+  }, [lessonIdParam])
 
   const currentLesson = isSandbox ? playgroundLesson : (lessons.find((l) => l.id === currentLessonId) ?? null)
 
@@ -101,9 +108,20 @@ export default function LearnPage() {
         setError(null)
         captureLessonStarted(currentLesson)
       }
+      reminderService.markActivity()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLessonId])
+
+  // If saved progress only arrived from IndexedDB after the lesson opened,
+  // restore the last query the user wrote for it
+  useEffect(() => {
+    if (!progressReady || isSandbox) return
+    const saved = lessonStates[String(currentLessonId)]?.lastCode
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (saved) setQuery((q) => (q === placeholderText || q === '' ? saved : q))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progressReady])
 
   const handleSelectLesson = useCallback((id) => {
     setCurrentLessonId(id)
@@ -127,6 +145,7 @@ export default function LearnPage() {
 
   const handleRun = useCallback(async () => {
     if (!currentLesson || isRunning) return
+    reminderService.markActivity()
     setIsRunning(true)
     setError(null)
 

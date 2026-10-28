@@ -5,6 +5,8 @@ import LearnPage from './pages/LearnPage.jsx'
 import { capturePageview } from './lib/phuglytics.js'
 import ThemeProvider from './lib/ThemeContext.jsx'
 import PwaInstallBanner from './components/PwaInstallBanner.jsx'
+import UpdateToast from './components/UpdateToast.jsx'
+import NotificationNavigator from './components/NotificationNavigator.jsx'
 
 
 function PageTracker() {
@@ -17,6 +19,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <PageTracker />
+      <NotificationNavigator />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/learn" element={<LearnPage />} />
@@ -24,6 +27,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <PwaInstallBanner />
+      <UpdateToast />
     </ThemeProvider>
   )
 }

@@ -9,13 +9,13 @@ An interactive, in-browser MongoDB playground. Write real MongoDB queries agains
 - **35 progressive lessons** - Start with `find()` and work up to `$bucket`, `$facet`, and `$lookup`. Five modules covering reading, aggregation, writes, advanced queries, and analytical patterns.
 - **Hints that guide** - Progressive hints for each lesson that point you in the right direction without giving away the answer.
 - **No signup, no cost** - Everything runs client-side. No account, no email, no credit card.
-- **Progress that persists** - Completed lessons, last query, and attempt counts are saved to localStorage automatically.
+- **Progress that persists** - Completed lessons, last query, and attempt counts are saved to IndexedDB automatically, and stay in sync across open tabs.
 - **Dark mode** - Full light/dark theme toggle, persisted to localStorage, with flash-free initialization.
 - **Completion experience** - Finishing all lessons triggers a multi-wave confetti burst and a modal with stats and next-step resources.
 - **Analytics** - Optional PostHog integration tracks lesson completions, query attempts, hint usage, and drop-off to help improve the curriculum.
 - **Offline first** - Full PWA with a service worker that precaches all assets. Works without a network connection.
 - **Installable** - Prompt to install as a standalone app (Android/Desktop via `beforeinstallprompt`, iOS via "Add to Home Screen" instructions).
-- **Lesson reminders** - Configurable in-app popup and system notification reminders. Periodic Background Sync (Chromium) for notifications when the app is closed; missed-reminder catch-up on return for Firefox/Safari.
+- **Lesson reminders** - Configurable in-app popup and system notification reminders, skipped while you're practicing. Best-effort background reminders on installed Chromium apps via Periodic Background Sync.
 - **Offline-resilient analytics** - Analytics events queue to `localStorage` when offline and flush on reconnection, with no event loss across sessions.
 
 ## Tech Stack
@@ -58,15 +58,53 @@ Events are always sent to the same-origin `/tt` path, which is a reverse proxy t
 
 ## PWA
 
-Mongeesy is a fully offline-capable Progressive Web App.
+Mongeesy is a fully offline-capable Progressive Web App. After the first visit, every page, the editor and the query engine work without a network.
 
-- **Service worker** (`src/sw.js`) — Built with Workbox via `vite-plugin-pwa` using `injectManifest` strategy. Precaches all JS, CSS, HTML, and assets on first visit.
-- **Install prompt** (`src/components/PwaInstallBanner.jsx`) — Detects `beforeinstallprompt` (Chrome) or iOS for "Add to Home Screen" instructions. Shown on first visit and dismissible; hidden once installed.
-- **Notifications** (`src/lib/reminderService.js`) — Tab-open timer fires system notifications (`new Notification()`) and in-app popups at a configurable interval. On Chromium, Periodic Background Sync fires notifications when the app is closed. Firefox/Safari catch up on return. Requires notification permission.
-- **Notification click** — Clicking a system notification navigates to the suggested lesson via `client.navigate()` in the service worker. Background (Periodic Sync) notifications also name the next unfinished lesson: the page stores it in the `mongeesy-meta` cache, which `src/sw.js` reads.
+- **Service worker** (`src/sw.js`) — Built with Workbox via `vite-plugin-pwa` using the `injectManifest` strategy. Precaches all JS, CSS, HTML, fonts and assets (about 5 MB, mostly the editor) and serves the app shell for every route, so `/learn/20` opens and reloads offline. Old caches are cleaned up on activation.
+- **Editor** (`src/lib/monaco-setup.js`) — Monaco is bundled with the app instead of loaded from a CDN, so it's precached. Only the editor core and JavaScript highlighting are included (no TypeScript language service). It's lazy-loaded, so the landing page doesn't download it.
+- **Updates** (`src/components/UpdateToast.jsx`) — A new version waits until the user clicks **Reload** on the "new version available" prompt, instead of replacing files under an open page. The app checks for updates hourly. If the query worker's file is gone anyway, queries fall back to the main thread.
+- **Install prompt** (`src/components/PwaInstallBanner.jsx`) — Detects `beforeinstallprompt` (Chrome), even when it fires after the page rendered, or shows iOS "Add to Home Screen" instructions. Dismissible; hidden once installed.
 - **Offline analytics** (`src/lib/phuglytics.js`) — PostHog events queue to `localStorage` when offline and flush on `online` event or next page load. Capped at 500 events.
 
+### Reminders
+
+`src/lib/reminderService.js` (page) and `src/sw.js` (background) both decide with `shouldRemind()` in `src/lib/reminder-rules.js`, using settings and timestamps stored in IndexedDB:
+
+- A reminder is skipped if the user practiced (opened a lesson or ran a query) within the chosen interval, or another tab or the service worker already reminded them.
+- While the app is in front, it shows the in-app popup; otherwise it sends a system notification (through the service worker, so it works on Android too).
+- Only one open tab fires (Web Locks).
+- Clicking a notification focuses an open Mongeesy window and routes to the suggested lesson in place, or opens a new window.
+
+What each browser can deliver, which the settings dialog also tells the user:
+
+| Browser | While a tab is open | While the app is closed |
+| --- | --- | --- |
+| Chrome / Edge, installed app | Yes | Best effort via Periodic Background Sync. The browser decides how often (usually a few times a day at most) and only for apps it considers engaged |
+| Chrome / Edge, in a tab | Yes | No |
+| Firefox, Safari (macOS) | Yes | No |
+| iPhone / iPad | Only after "Add to Home Screen" (iOS 16.4+) | No |
+
+Reliable scheduled reminders would need Web Push from a server, which this app deliberately doesn't have.
+
 > **Note:** Service worker is only active in production builds. Use `npm run build && npm run preview` to test PWA features locally.
+
+## Storage
+
+Progress and reminder data live in IndexedDB (`src/lib/db.js`), database `mongeesy`:
+
+| Store | Contents |
+| --- | --- |
+| `lessons` | One record per lesson: `{ id, completed, completedAt, lastCode, attempts }`. Separate records mean two tabs saving different lessons never overwrite each other. |
+| `kv` | `reminderSettings`, `lastActivityAt`, `lastReminderAt`, `nextLesson`, `migratedFromLocalStorage` |
+
+- The service worker reads the same database, which is how background reminders respect settings and name the next lesson.
+- Tabs tell each other about changes over a `BroadcastChannel`.
+- **Migration:** on first load, progress in the old `mongeesy-progress` / `mongodb-easy-progress` localStorage keys (all past formats) and the reminder settings are copied into IndexedDB once. The old keys are left in place for one release so rolling back doesn't lose progress.
+- **Synchronous copies:** `mongeesy-progress-cache` and `mongeesy-reminder-settings` in localStorage let the first render and the landing page show data before IndexedDB answers.
+- **Fallback:** if IndexedDB can't be opened (some private browsing modes), the same API is backed by localStorage (`mongeesy-db-fallback`).
+- **Eviction:** after the first completed lesson the app asks for persistent storage (`navigator.storage.persist()`). Browsers can still clear site data; notably Safari deletes storage for sites that aren't installed and haven't been used for 7 days, whether it's IndexedDB or localStorage.
+
+The theme (`mongeesy-theme`) and the install banner flag stay in localStorage, because the theme must be read synchronously in `index.html` to avoid a flash.
 
 ## Scripts
 
@@ -100,6 +138,9 @@ src/
 ├── lib/              # Shared utilities
 │   ├── phuglytics.js       # PostHog analytics wrapper with offline queue
 │   ├── reminderService.js  # Notification scheduling, Periodic Background Sync, settings
+│   ├── reminder-rules.js   # shouldRemind(): shared by the page and the service worker
+│   ├── db.js               # IndexedDB storage, migration, cross-tab notifications
+│   ├── monaco-setup.js     # Bundled (offline) Monaco editor
 │   ├── ThemeContext.jsx     # Dark/light theme provider, useTheme hook, ThemeToggle component
 │   └── playground.jsx      # Free-form playground lesson definition
 ├── sw.js             # Service worker (Workbox precaching, notification handlers, clients.navigate)
@@ -259,7 +300,7 @@ const { theme, toggle } = useTheme(); // theme: 'light' | 'dark'
 `src/pages/LandingPage.jsx` is the marketing page. Notable features:
 
 - **Animated demo** - An auto-playing typewriter animation in the hero types a MongoDB query, triggers a "running" state, and fades in the result. Plays once on load.
-- **Resume banner** - Returning users see a personalized chip ("Welcome back - X/35 lessons done") and a styled Continue button with a progress bar, both linking directly to their next uncompleted lesson. Computed from localStorage on mount via a `useState` lazy initializer.
+- **Resume banner** - Returning users see a personalized chip ("Welcome back - X/35 lessons done") and a styled Continue button with a progress bar, both linking directly to their next uncompleted lesson. Shown immediately from the cached copy of progress, then refreshed from IndexedDB.
 - **Section headings** - Each section has a small green uppercase label above the heading and a short green accent bar below, applied consistently across all five sections.
 - **FAQ accordion** - Five common questions above the final CTA, implemented with controlled `useState` per item.
 
@@ -358,6 +399,10 @@ Tests live in two files:
 - *Lesson smoke tests* - one test per lesson. Each runs the lesson's `defaultQuery` on a fresh database and grades it with `checkAnswer()`, exactly like the app does.
 - *Grading tests* - known-wrong answers (unsorted results, wrong update values, deleting the wrong document) must fail.
 - *Engine edge-case tests* - null semantics, `$unwind` edge cases, update modifiers, expression operators, `$lookup` pipeline form.
+
+**`src/lib/db.test.js`** - IndexedDB storage: migration from every old localStorage format, per-lesson writes across tabs, and the localStorage fallback (uses `fake-indexeddb`).
+
+**`src/lib/reminder-rules.test.js`** - when a reminder is due and which kind is shown.
 
 **`src/engine/engine.test.js`** - parser safety and error messages, array / dot-path matching, BSON ordering, cursor chain order, write results, upserts, accumulators, `$lookup` / `$bucket` semantics and date operators.
 

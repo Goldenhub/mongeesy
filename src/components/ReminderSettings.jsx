@@ -1,5 +1,8 @@
-import { useState } from 'react'
-import { requestNotificationPermission, getPermissionStatus, isNotificationSupported, INTERVAL_OPTIONS } from '../lib/reminderService.js'
+import { useEffect, useState } from 'react'
+import {
+  requestNotificationPermission, getPermissionStatus, isNotificationSupported, INTERVAL_OPTIONS,
+  getReminderSupport, SUPPORT_MESSAGES,
+} from '../lib/reminderService.js'
 
 export default function ReminderSettings({ settings, onSave, onClose }) {
   const [enabled, setEnabled] = useState(settings.enabled)
@@ -9,6 +12,11 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
   const [notifStatus, setNotifStatus] = useState(() => getPermissionStatus())
   const notifSupported = isNotificationSupported()
   const [saved, setSaved] = useState(false)
+  const [support, setSupport] = useState(null)
+
+  useEffect(() => {
+    getReminderSupport().then(setSupport).catch(() => {})
+  }, [])
 
   function handleSave() {
     onSave({
@@ -80,6 +88,9 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+                  Skipped while you're practicing; this counts from your last activity.
+                </p>
               </div>
 
               <div className="space-y-3">
@@ -137,6 +148,11 @@ export default function ReminderSettings({ settings, onSave, onClose }) {
                 </label>
               </div>
 
+              {support && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+                  {SUPPORT_MESSAGES[support]}
+                </p>
+              )}
             </>
           )}
         </div>

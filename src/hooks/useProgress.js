@@ -1,102 +1,94 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import {
+  initStorage, getAllLessons, putLesson, clearLessons, notify, subscribe,
+  readLegacyProgress, requestPersistence,
+} from '../lib/db.js'
 
-const STORAGE_KEY = 'mongeesy-progress'
-const OLD_STORAGE_KEY = 'mongodb-easy-progress'
-const APP_VERSION = '2.0.0'
+// Progress lives in IndexedDB (see src/lib/db.js). This small localStorage
+// copy lets the first render, and the landing page, show progress synchronously.
+const CACHE_KEY = 'mongeesy-progress-cache'
+const APP_VERSION = '3.0.0'
 
-function loadData() {
+export function readCachedProgress() {
   try {
-    const oldStored = localStorage.getItem(OLD_STORAGE_KEY)
-    const newStored = localStorage.getItem(STORAGE_KEY)
-
-    let stored
-    if (oldStored) {
-      stored = oldStored
-      localStorage.setItem(STORAGE_KEY, stored)
-      localStorage.removeItem(OLD_STORAGE_KEY)
-    } else {
-      stored = newStored
-    }
-
-    if (!stored) return defaultData()
-
-    const parsed = JSON.parse(stored)
-
-    if (Array.isArray(parsed)) {
-      return migrateFromLegacy(parsed)
-    }
-
-    if (parsed && typeof parsed === 'object' && parsed.lessons) {
-      if (parsed.version !== APP_VERSION) {
-        return migrateProgress(parsed)
-      }
-      return parsed
-    }
-
-    return defaultData()
-  } catch {
-    return defaultData()
-  }
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (cached) return JSON.parse(cached)
+  } catch { /* fall through to legacy */ }
+  // First load after the move to IndexedDB: the old key is still there
+  return readLegacyProgress()
 }
 
-function defaultData() {
-  return {
-    version: APP_VERSION,
-    updatedAt: new Date().toISOString(),
-    lessons: {},
-  }
+function writeCache(lessons) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(lessons))
+  } catch { /* storage full or blocked */ }
 }
 
-function migrateFromLegacy(legacyArray) {
-  const lessons = {}
-  for (const id of legacyArray) {
-    lessons[String(id)] = {
-      completed: true,
-      completedAt: null,
-      lastCode: '',
-      attempts: 0,
-    }
-  }
-  const data = {
-    version: APP_VERSION,
-    updatedAt: new Date().toISOString(),
-    lessons,
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-  return data
+export function recordsToProgress(records) {
+  return Object.fromEntries(records.map(({ id, ...state }) => [id, state]))
 }
 
-function migrateProgress(data) {
-  if (data.version === '1.0.0') {
-    const newLessons = {}
-    for (const [key, state] of Object.entries(data.lessons)) {
-      const num = Number(key)
-      if (num >= 1 && num <= 32) {
-        newLessons[String(num + 2)] = state
-      } else {
-        newLessons[key] = state
-      }
-    }
-    data.lessons = newLessons
-    data.version = APP_VERSION
-    saveData(data)
-  }
-  return data
-}
-
-function saveData(data) {
-  data.updatedAt = new Date().toISOString()
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+export async function loadProgress() {
+  await initStorage()
+  return recordsToProgress(await getAllLessons())
 }
 
 export function useProgress() {
-  const [data, setData] = useState(loadData)
+  const [lessonStates, setLessonStates] = useState(readCachedProgress)
+  const [ready, setReady] = useState(false)
+  const latest = useRef(lessonStates)
+  // Writes not yet confirmed by IndexedDB; re-applied over anything loaded so a
+  // slower read can't roll back what the user just did
+  const inFlight = useRef(new Map())
+
+  const apply = useCallback((next) => {
+    latest.current = next
+    setLessonStates(next)
+    writeCache(next)
+  }, [])
 
   useEffect(() => {
-    saveData(data)
-  }, [data])
+    let cancelled = false
+    const load = async () => {
+      const loaded = await loadProgress()
+      if (cancelled) return
+      for (const [id, state] of inFlight.current) loaded[id] = state
+      apply(loaded)
+    }
+    load()
+      .catch((err) => console.warn('Could not load progress', err))
+      .finally(() => !cancelled && setReady(true))
+    const unsubscribe = subscribe((msg) => {
+      if (msg?.type === 'progress') load().catch(() => {})
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [apply])
 
-  const lessonStates = data.lessons
+  const updateLessonState = useCallback((lessonId, state) => {
+    const id = String(lessonId)
+    const record = { ...latest.current[id], ...state }
+    apply({ ...latest.current, [id]: record })
+    inFlight.current.set(id, record)
+    initStorage()
+      .then(() => putLesson({ ...record, id }))
+      .then(() => {
+        notify('progress')
+        if (record.completed) requestPersistence()
+      })
+      .catch((err) => console.warn('Could not save progress', err))
+      .finally(() => {
+        if (inFlight.current.get(id) === record) inFlight.current.delete(id)
+      })
+  }, [apply])
+
+  const resetProgress = useCallback(() => {
+    inFlight.current.clear()
+    apply({})
+    clearLessons().then(() => notify('progress')).catch(() => {})
+  }, [apply])
 
   const countCompleted = Object.values(lessonStates).filter((s) => s.completed).length
 
@@ -105,27 +97,5 @@ export function useProgress() {
     [lessonStates]
   )
 
-  const updateLessonState = useCallback((lessonId, state) => {
-    const key = String(lessonId)
-    setData((prev) => {
-      const prevLesson = prev.lessons[key]
-      return {
-        ...prev,
-        lessons: {
-          ...prev.lessons,
-          [key]: {
-            ...prevLesson,
-            ...state,
-          },
-        },
-      }
-    })
-  }, [])
-
-  const resetProgress = useCallback(() => {
-    setData(defaultData())
-    localStorage.removeItem(STORAGE_KEY)
-  }, [])
-
-  return { lessonStates, countCompleted, isCompleted, updateLessonState, resetProgress, appVersion: APP_VERSION }
+  return { lessonStates, countCompleted, isCompleted, updateLessonState, resetProgress, ready, appVersion: APP_VERSION }
 }

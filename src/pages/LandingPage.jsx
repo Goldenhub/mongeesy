@@ -5,6 +5,7 @@ import ThemeToggle from '../components/ThemeToggle.jsx'
 import { Database } from '../engine/query-engine.js'
 import books from '../data/books.js'
 import lessons from '../lessons/index.js'
+import { readCachedProgress, loadProgress } from '../hooks/useProgress.js'
 
 const features = [
   {
@@ -101,7 +102,7 @@ const faqs = [
   },
   {
     q: 'How is my progress saved?',
-    a: 'Your completed lessons, attempt counts, and last query are automatically saved to your browser\'s localStorage. No account needed. It persists across sessions as long as you use the same browser.',
+    a: 'Your completed lessons, attempt counts, and last query are automatically saved in your browser (IndexedDB). No account needed. It persists across sessions as long as you use the same browser.',
   },
   {
     q: 'How long does it take to complete?',
@@ -208,26 +209,29 @@ function AnimatedDemo() {
   )
 }
 
+function resumeInfoFrom(progress) {
+  const completedIds = new Set(
+    Object.entries(progress ?? {})
+      .filter(([, s]) => s?.completed)
+      .map(([id]) => Number(id))
+  )
+  if (completedIds.size === 0) return null
+  const firstUncompleted = lessons.find((l) => !completedIds.has(l.id))
+  const resumeLesson = firstUncompleted ?? lessons[lessons.length - 1]
+  return { count: completedIds.size, total: lessons.length, lessonId: resumeLesson.id, lessonTitle: resumeLesson.title }
+}
+
 function useResumeInfo() {
-  const [info] = useState(() => {
-    try {
-      const stored = localStorage.getItem('mongeesy-progress')
-      if (!stored) return null
-      const data = JSON.parse(stored)
-      if (!data?.lessons) return null
-      const completedIds = new Set(
-        Object.entries(data.lessons)
-          .filter(([, s]) => s.completed)
-          .map(([id]) => Number(id))
-      )
-      if (completedIds.size === 0) return null
-      const firstUncompleted = lessons.find((l) => !completedIds.has(l.id))
-      const resumeLesson = firstUncompleted ?? lessons[lessons.length - 1]
-      return { count: completedIds.size, total: lessons.length, lessonId: resumeLesson.id, lessonTitle: resumeLesson.title }
-    } catch {
-      return null
-    }
-  })
+  // Cached copy first so returning users see their progress immediately,
+  // then the IndexedDB copy, which is the source of truth
+  const [info, setInfo] = useState(() => resumeInfoFrom(readCachedProgress()))
+  useEffect(() => {
+    let cancelled = false
+    loadProgress()
+      .then((progress) => !cancelled && setInfo(resumeInfoFrom(progress)))
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   return info
 }
 
